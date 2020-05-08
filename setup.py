@@ -8,7 +8,7 @@ with open("README.md") as f:
 
 setup(
     name="xud-docker-bot",
-    version="1.0.0.dev37",
+    version="1.0.0.dev52",
     description="A bot for xud-docker",
     long_description=long_description,
     long_description_content_type="text/markdown",

@@ -1,0 +1,13 @@
+README.md
+setup.py
+bot/__init__.py
+bot/__main__.py
+bot/context.py
+bot/discord_bot.py
+bot/web_handles.py
+bot/web_hooks.py
+xud_docker_bot.egg-info/PKG-INFO
+xud_docker_bot.egg-info/SOURCES.txt
+xud_docker_bot.egg-info/dependency_links.txt
+xud_docker_bot.egg-info/requires.txt
+xud_docker_bot.egg-info/top_level.txt
