@@ -1,0 +1,5 @@
+discord
+aiohttp
+requests
+humanize
+PyYAML

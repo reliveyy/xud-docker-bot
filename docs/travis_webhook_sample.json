@@ -1,0 +1,174 @@
+{
+  "id": 680108491,
+  "number": "828",
+  "config": {
+    "language": "python",
+    "os": [
+      "linux"
+    ],
+    "dist": "trusty",
+    "sudo": false,
+    "python": [
+      "3.5.2"
+    ],
+    "branches": {
+      "only": [
+        "master"
+      ]
+    },
+    "env": [
+      "global={:PATH=>\"$HOME/.local/user/bin:$PATH\"}"
+    ],
+    "cache": {
+      "pip": true,
+      "directories": [
+        "vendor/bundle",
+        "node_modules"
+      ]
+    },
+    "deploy": [
+      {
+        "provider": "heroku",
+        "strategy": "api",
+        "api_key": {
+          "secure": "hylw2GIHMvZKOKX3uPSaLEzVrUGEA9mzGEA0s4zK37W9HJCTnvAcmgRCwOkRuC4L7R4Zshdh/CGORNnBBgh1xx5JGYwkdnqtjHuUQmWEXCusrIURu/iEBNSsZZEPK7zBuwqMHj2yRm64JfbTDJsku3xdoA5Z8XJG5AMJGKLFgUQ="
+        },
+        "app": "docs-travis-ci-com",
+        "skip_cleanup": true,
+        "on": {
+          "branch": [
+            "master"
+          ]
+        }
+      }
+    ],
+    "notifications": {
+      "slack": [
+        {
+          "rooms": [
+            {
+              "secure": "LPNgf0Ra6Vu6I7XuK7tcnyFWJg+becx1RfAR35feWK81sru8TyuldQIt7uAKMA8tqFTP8j1Af7iz7UDokbCCfDNCX1GxdAWgXs+UKpwhO89nsidHAsCkW2lWSEM0E3xtOJDyNFoauiHxBKGKUsApJTnf39H+EW9tWrqN5W2sZg8="
+            }
+          ],
+          "on_success": "never"
+        }
+      ],
+      "webhooks": [
+        {
+          "urls": [
+            "https://docs.travis-ci.com/update_webhook_payload_doc"
+          ]
+        }
+      ]
+    },
+    "install": [
+      "rvm use 2.3.1 --install",
+      "bundle install --deployment"
+    ],
+    "script": [
+      "bundle exec rake test"
+    ]
+  },
+  "type": "cron",
+  "state": "errored",
+  "status": 1,
+  "result": 1,
+  "status_message": "Errored",
+  "result_message": "Errored",
+  "started_at": "2020-04-27T13:38:13Z",
+  "finished_at": "2020-04-27T13:39:10Z",
+  "duration": 57,
+  "build_url": "https://travis-ci.org/lapolinar/docs-travis-ci-com/builds/680108491",
+  "commit_id": 207911269,
+  "commit": "14e8e737d1054b1776bb7b9c2ddfa793f2f85cfa",
+  "base_commit": null,
+  "head_commit": null,
+  "branch": "master",
+  "message": "Update deployments.yml",
+  "compare_url": "https://github.com/lapolinar/docs-travis-ci-com/compare/33860b3691f30239349f6fd245a97aaebeae102c...14e8e737d1054b1776bb7b9c2ddfa793f2f85cfa",
+  "committed_at": "2019-01-06T02:01:09Z",
+  "author_name": "apolinar",
+  "author_email": "lapolinar2368@gmail.com",
+  "committer_name": "GitHub",
+  "committer_email": "noreply@github.com",
+  "pull_request": false,
+  "pull_request_number": null,
+  "pull_request_title": null,
+  "tag": null,
+  "repository": {
+    "id": 15948437,
+    "name": "docs-travis-ci-com",
+    "owner_name": "lapolinar",
+    "url": null
+  },
+  "matrix": [
+    {
+      "id": 680108492,
+      "repository_id": 15948437,
+      "parent_id": 680108491,
+      "number": "828.1",
+      "state": "errored",
+      "config": {
+        "os": "linux",
+        "python": "3.5.2",
+        "language": "python",
+        "dist": "trusty",
+        "sudo": false,
+        "branches": {
+          "only": [
+            "master"
+          ]
+        },
+        "cache": {
+          "pip": true,
+          "directories": [
+            "vendor/bundle",
+            "node_modules"
+          ]
+        },
+        "install": [
+          "rvm use 2.3.1 --install",
+          "bundle install --deployment"
+        ],
+        "script": [
+          "bundle exec rake test"
+        ],
+        "env": [
+          "PATH=$HOME/.local/user/bin:$PATH"
+        ],
+        "addons": {
+          "deploy": [
+            {
+              "provider": "heroku",
+              "strategy": "api",
+              "api_key": {
+                "secure": "hylw2GIHMvZKOKX3uPSaLEzVrUGEA9mzGEA0s4zK37W9HJCTnvAcmgRCwOkRuC4L7R4Zshdh/CGORNnBBgh1xx5JGYwkdnqtjHuUQmWEXCusrIURu/iEBNSsZZEPK7zBuwqMHj2yRm64JfbTDJsku3xdoA5Z8XJG5AMJGKLFgUQ="
+              },
+              "app": "docs-travis-ci-com",
+              "skip_cleanup": true,
+              "on": {
+                "branch": [
+                  "master"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "status": 1,
+      "result": 1,
+      "commit": "14e8e737d1054b1776bb7b9c2ddfa793f2f85cfa",
+      "branch": "master",
+      "message": "Update deployments.yml",
+      "compare_url": "https://github.com/lapolinar/docs-travis-ci-com/compare/33860b3691f30239349f6fd245a97aaebeae102c...14e8e737d1054b1776bb7b9c2ddfa793f2f85cfa",
+      "started_at": "2020-04-27T13:38:13Z",
+      "finished_at": "2020-04-27T13:39:10Z",
+      "committed_at": "2019-01-06T02:01:09Z",
+      "author_name": "apolinar",
+      "author_email": "lapolinar2368@gmail.com",
+      "committer_name": "GitHub",
+      "committer_email": "noreply@github.com",
+      "allow_failure": null
+    }
+  ]
+}
