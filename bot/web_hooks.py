@@ -109,7 +109,7 @@ async def dockerhub(request: web.Request):
     for img in images:
         msg += "\n• **Platform:** {}\n   **Digest:** `{}`\n   **Size:** ~{}\n   **Branch:** {}\n   **Revision:** `{}`".format(
             img.platform,
-            img.digest,
+            img.digest.replace("sha256:", ""),
             humanize.naturalsize(img.size, binary=True),
             img.branch,
             img.revision,
