@@ -140,6 +140,9 @@ def find_all_branches_in_xud_docker(repo, branch):
         if os.system("git fetch") != 0:
             raise RuntimeError("Failed to fetch updates for xud-docker")
 
+        if os.system("git remote prune origin") != 0:
+            raise RuntimeError("Failed to prune origin")
+
         try:
             output = check_output("git branch -r", shell=True, stderr=PIPE)
             branches = []
@@ -197,6 +200,34 @@ def trigger_travis_build_for_branch(branch, api_token, message):
         "Authorization": "token " + api_token
     })
     logger.info("Triggered ExchangeUnion/xud-docker build for branch {}: {}".format(branch, r.text))
+
+
+def get_pr(branch):
+    try:
+        r = get(f"https://api.github.com/repos/exchangeunion/xud-docker/pulls?head=exchangeunion:{branch}")
+        j = r.json()
+        if len(j) == 0:
+            return None
+        elif len(j) == 1:
+            return j[0]
+        elif len(j) > 1:
+            raise RuntimeError("There are multiple PRs related to branch {}".format(branch))
+    except:
+        pass
+    return None
+
+
+def filter_merged_branches(branches):
+    result = []
+    for b in branches:
+        if b == "master":
+            result.append(b)
+            continue
+        pr = get_pr(b)
+        if pr and pr["state"] == "open":
+            result.append(b)
+
+    return result
 
 
 async def handle_upstream_repo_update(repo, branch, api_token, channel, message):
