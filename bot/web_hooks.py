@@ -105,7 +105,7 @@ async def dockerhub(request: web.Request):
     tag = push_data["tag"]
     images = parse_tag(repo, tag)
 
-    msg = "%s pushed tag %s:**%s**" % (pusher, repo, tag.replace("__", r"\__"))
+    msg = "%s pushed %s:**%s**" % (pusher, repo, tag.replace("__", r"\__"))
     for img in images:
         msg += "\n• **Platform:** {}\n   **Digest:** `{}`\n   **Size:** ~{}\n   **Branch:** {}\n   **Revision:** `{}`".format(
             img.platform,
@@ -192,8 +192,8 @@ def find_all_branches_in_xud_docker(repo, branch):
 def trigger_travis_build_for_branch(branch, api_token, message):
     r = post("https://api.travis-ci.org/repo/ExchangeUnion%2Fxud-docker/requests", json={
         "request": {
-            "message": message,
-            "branch": "xud-latest"
+            "message": "xud(%s): %s" % (branch, message),
+            "branch": branch,
         }
     }, headers={
         "Travis-API-Version": "3",
@@ -233,11 +233,14 @@ def filter_merged_branches(branches):
 async def handle_upstream_repo_update(repo, branch, api_token, channel, message):
     if repo == "ExchangeUnion/xud":
         branches = find_all_branches_in_xud_docker(repo, branch)
+        branches = filter_merged_branches(branches)
         if len(branches) == 0:
             branch_list = "nothing"
         else:
             branch_list = ", ".join(branches)
-        msg = "ExchangeUnion/xud branch **{}** was pushed ({}). Will trigger builds for {}.".format(branch, message, branch_list)
+        lines = message.splitlines()
+        first_line = lines[0]
+        msg = "ExchangeUnion/xud branch **{}** was pushed ({}). Will trigger builds for {}.".format(branch, first_line, branch_list)
         logger.info(msg)
         bot.loop.create_task(channel.send(msg))
         for b in branches:
