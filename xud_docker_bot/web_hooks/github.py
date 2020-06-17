@@ -124,12 +124,34 @@ class GithubHook(Hook):
             for b in branches:
                 travis_msg = "%s(%s): %s" % (repo, branch, message)
                 self.context.travis_client.trigger_travis_build(b, travis_msg)
+        elif repo == "ExchangeUnion/market-maker-tools":
+            branches = self.find_all_branches_in_xud_docker(repo, branch)
+            # branches = filter_merged_branches(branches)
+            if len(branches) == 0:
+                branch_list = "nothing"
+            else:
+                branch_list = ", ".join(branches)
+            lines = message.splitlines()
+            first_line = lines[0]
+            msg = "ExchangeUnion/market-maker-tools branch **{}** was pushed ({}). Will trigger builds for {}." \
+                .format(branch, first_line, branch_list)
+            self.logger.debug(msg)
+            self.context.discord_template.publish_message(msg)
+            for b in branches:
+                travis_msg = "%s(%s): %s" % (repo, branch, message)
+                self.context.travis_client.trigger_travis_build(b, travis_msg)
 
     async def handle(self, request: web.Request) -> web.Response:
         j = await request.json()
         try:
             repo = j["repository"]["full_name"]
             if repo == "ExchangeUnion/xud":
+                ref = j["ref"]
+                branch = ref.replace("refs/heads/", "")
+                msg = j["head_commit"]["message"]
+                self.logger.debug("github push %s %s: %s", repo, branch, msg)
+                await self.handle_upstream_repo_update(repo, branch, msg)
+            if repo == "ExchangeUnion/market-maker-tools":
                 ref = j["ref"]
                 branch = ref.replace("refs/heads/", "")
                 msg = j["head_commit"]["message"]
