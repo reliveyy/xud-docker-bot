@@ -77,6 +77,56 @@ class GithubHook(Hook):
                         if os.system("git checkout master") != 0:
                             raise RuntimeError("Failed to checkout master")
                 return result
+            elif repo == "ExchangeUnion/market-maker-tools":
+                result = []
+                for b in branches:
+                    print("Test branch:", b, branch)
+                    try:
+                        if b != "master":
+                            os.system(f"git branch -D {b}")
+                            os.system(f"git checkout {b}")
+                        try:
+                            output = check_output("cat images/arby/latest/Dockerfile | grep BRANCH=", shell=True,
+                                                  stderr=PIPE)
+                            p = re.compile("^ARG BRANCH=(.+)$")
+                            m = p.match(output.decode())
+                            if m:
+                                dockerfile_branch = m.group(1)
+                            else:
+                                raise RuntimeError("Failed to get arby:latest BRANCH in {}".format(b))
+                            if branch == dockerfile_branch:
+                                result.append(b)
+                        except CalledProcessError:
+                            print("Failed to grep BRANCH from images/arby/latest/Dockerfile in " + b)
+                    finally:
+                        if os.system("git checkout master") != 0:
+                            raise RuntimeError("Failed to checkout master")
+                return result
+            elif repo == "BoltzExchange/boltz-lnd":
+                result = []
+                for b in branches:
+                    print("Test branch:", b, branch)
+                    try:
+                        if b != "master":
+                            os.system(f"git branch -D {b}")
+                            os.system(f"git checkout {b}")
+                        try:
+                            output = check_output("cat images/boltz/latest/Dockerfile | grep BRANCH=", shell=True,
+                                                  stderr=PIPE)
+                            p = re.compile("^ARG BRANCH=(.+)$")
+                            m = p.match(output.decode())
+                            if m:
+                                dockerfile_branch = m.group(1)
+                            else:
+                                raise RuntimeError("Failed to get boltz:latest BRANCH in {}".format(b))
+                            if branch == dockerfile_branch:
+                                result.append(b)
+                        except CalledProcessError:
+                            print("Failed to grep BRANCH from images/boltz/latest/Dockerfile in " + b)
+                    finally:
+                        if os.system("git checkout master") != 0:
+                            raise RuntimeError("Failed to checkout master")
+                return result
         finally:
             os.chdir(wd)
         return []
@@ -140,6 +190,22 @@ class GithubHook(Hook):
             for b in branches:
                 travis_msg = "%s(%s): %s" % (repo, branch, message)
                 self.context.travis_client.trigger_travis_build(b, travis_msg)
+        elif repo == "BoltzExchange/boltz-lnd":
+            branches = self.find_all_branches_in_xud_docker(repo, branch)
+            # branches = filter_merged_branches(branches)
+            if len(branches) == 0:
+                branch_list = "nothing"
+            else:
+                branch_list = ", ".join(branches)
+            lines = message.splitlines()
+            first_line = lines[0]
+            msg = "BoltzExchange/boltz-lnd branch **{}** was pushed ({}). Will trigger builds for {}." \
+                .format(branch, first_line, branch_list)
+            self.logger.debug(msg)
+            self.context.discord_template.publish_message(msg)
+            for b in branches:
+                travis_msg = "%s(%s): %s" % (repo, branch, message)
+                self.context.travis_client.trigger_travis_build(b, travis_msg)
 
     async def handle(self, request: web.Request) -> web.Response:
         j = await request.json()
@@ -151,7 +217,13 @@ class GithubHook(Hook):
                 msg = j["head_commit"]["message"]
                 self.logger.debug("github push %s %s: %s", repo, branch, msg)
                 await self.handle_upstream_repo_update(repo, branch, msg)
-            if repo == "ExchangeUnion/market-maker-tools":
+            elif repo == "ExchangeUnion/market-maker-tools":
+                ref = j["ref"]
+                branch = ref.replace("refs/heads/", "")
+                msg = j["head_commit"]["message"]
+                self.logger.debug("github push %s %s: %s", repo, branch, msg)
+                await self.handle_upstream_repo_update(repo, branch, msg)
+            elif repo == "BoltzExchange/boltz-lnd":
                 ref = j["ref"]
                 branch = ref.replace("refs/heads/", "")
                 msg = j["head_commit"]["message"]
@@ -159,6 +231,6 @@ class GithubHook(Hook):
                 await self.handle_upstream_repo_update(repo, branch, msg)
             else:
                 self.logger.debug("Ignore GitHub %s webhook", repo)
-        except Exception as e:
-            raise RuntimeError(e, "Failed to parse github webhook: {}".format(j))
+        except:
+            self.logger.exception("Failed to parse github webhook: %r", j)
         return web.Response()
