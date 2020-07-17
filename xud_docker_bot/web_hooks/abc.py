@@ -13,7 +13,6 @@ class Hook:
         self.logger = logging.getLogger("xud_docker_bot.web_hooks." + self.__class__.__name__)
         self.context = context
 
-
     @abstractmethod
     async def handle(self, request: web.Request) -> web.Response:
         pass
