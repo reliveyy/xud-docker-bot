@@ -31,8 +31,34 @@ class TravisClient:
             raise TravisClientError(j["error_message"])
         self._logger.debug("Triggered %s build for branch %s: %s", self.repo, branch, r.text)
 
-    def trigger_travis_build2(self, branch: str, message: str, images: List[str]):
-        script = "tools/push {}".format(" ".join(images))
+    def _convert_docker_platform_to_travis(self, platform: str):
+        platform = platform.strip()
+        platform = platform.lower()
+        if platform == "linux/amd64":
+            return "amd64"
+        elif platform == "linux/arm64":
+            return "arm64"
+        else:
+            raise RuntimeError("Cannot map Docker platform {} to Travis platform".format(platform))
+
+    def trigger_travis_build2(
+            self,
+            branch: str,
+            message: str,
+            images: List[str],
+            force: bool = False,
+            platforms: List[str] = None):
+
+        if force:
+            script = "tools/push -f {}".format(" ".join(images))
+        else:
+            script = "tools/push {}".format(" ".join(images))
+
+        if platforms:
+            arch = [self._convert_docker_platform_to_travis(p) for p in platforms]
+        else:
+            arch = ["amd64", "arm64"]
+
         r = post(f"{self.api_url}/repo/{self.repo}/requests", json={
             "request": {
                 "message": message,
@@ -41,13 +67,13 @@ class TravisClient:
                 "config": {
                     "language": "python",
                     "python": "3.8",
-                    "arch": ["amd64", "arm64"],
+                    "arch": arch,
                     "git": {
                         "depth": False,
                     },
                     "services": ["docker"],
                     "before_script": [
-                        'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin'
+                        'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin',
                     ],
                     "script": script
                 }
