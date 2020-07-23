@@ -41,11 +41,14 @@ class GithubHook(Hook):
             self.context.travis_client.trigger_travis_build2(b, travis_msg, [f"{image}:latest"])
 
     async def handle_xud_docker_update(self, branch, msg):
-        client = self.context.travis_client
-        images = self.xud_docker.get_modified_images(branch)
-        if len(images) > 0:
-            remaining_requests, request_id = client.trigger_travis_build2(branch, msg, images)
-            self.logger.debug("Created Travis build request %s for images: %s (%s request(s) left)", request_id, ", ".join(images), remaining_requests)
+        try:
+            client = self.context.travis_client
+            images = self.xud_docker.get_modified_images(branch)
+            if len(images) > 0:
+                remaining_requests, request_id = client.trigger_travis_build2(branch, msg, images)
+                self.logger.debug("Created Travis build request %s for images: %s (%s request(s) left)", request_id, ", ".join(images), remaining_requests)
+        except Exception as e:
+            raise RuntimeError("Failed to handle xud-docker updates") from e
 
     async def handle(self, request: web.Request) -> web.Response:
         j = await request.json()

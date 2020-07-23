@@ -98,6 +98,12 @@ class XudDockerRepo:
 
         return result
 
+    def _get_modified_image_tags(self, image):
+        if image not in image_tags:
+            raise RuntimeError("Cannot tell modified tags of image %s" % image)
+        tags = image_tags[image]
+        return tags
+
     def get_modified_images(self, branch):
         wd = os.getcwd()
         try:
@@ -129,8 +135,15 @@ class XudDockerRepo:
                     images.add(m.group(1))
             self.logger.debug("Modified images: %s", images)
             result = []
+
+            def image_existed(image):
+                image_folder = os.path.join("images", image)
+                return os.path.exists(image_folder)
+
+            images = [image for image in images if image_existed(image)]
+
             for image in images:
-                result.extend([f"{image}:{tag}" for tag in image_tags[image]])
+                result.extend([f"{image}:{tag}" for tag in self._get_modified_image_tags(image)])
             self.logger.debug("Rebuilt tags: %s", result)
             return result
         finally:
