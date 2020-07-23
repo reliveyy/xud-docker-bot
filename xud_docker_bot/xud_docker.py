@@ -9,9 +9,9 @@ from requests import get
 image_tags = {
     "bitcoind": ["0.20.0"],
     "litecoind": ["0.18.1"],
-    "geth": ["1.9.16"],
+    "geth": ["1.9.17"],
     "lnd": ["0.10.2-beta", "0.10.2-beta-simnet", "0.10.1-beta-ltc", "0.10.1-beta-ltc-simnet"],
-    "connext": ["latest", "7.0.0-alpha.14"],
+    "connext": ["latest", "7.0.0"],
     "xud": ["latest", "1.0.0-beta.5"],
     "arby": ["latest", "0.2.0"],
     "boltz": ["latest", "1.0.0"],
