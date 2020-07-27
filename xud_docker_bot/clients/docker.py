@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, List
 from collections import namedtuple
+from datetime import datetime
+import platform
 
 import requests
 
@@ -69,6 +71,14 @@ class DockerRegistryClient:
             raise DockerRegistryClientError("Failed to get blob: {}:{}".format(repo, digest)) from e
 
 
+@dataclass
+class DockerImage:
+    digest: str
+    revision: str
+    app_revision: str
+    created_at: datetime
+
+
 class DockerhubClient(DockerRegistryClient):
     def __init__(self):
         super().__init__(token_url="https://auth.docker.io/token", registry_url="https://registry-1.docker.io")
@@ -96,4 +106,36 @@ class DockerhubClient(DockerRegistryClient):
                 tags.append(Tag(item["name"], item["full_size"]))
         return tags
 
+    def _get_single_manifest(self, r1, repo):
+        digest = r1.payload["config"]["digest"]
 
+        r2 = self.get_blob(repo, digest)
+        labels = r2.payload["config"]["Labels"]
+
+        revision = labels.get("com.exchangeunion.image.revision", None)
+        app_revision = labels.get("com.exchangeunion.application.revision", None)
+
+        # FIXME created_at
+        return DockerImage(digest=digest, revision=revision, app_revision=app_revision, created_at=datetime.now())
+
+    def get_image(self, repo, tag) -> Optional[DockerImage]:
+        r1 = self.get_manifest(repo, tag)
+        if not r1:
+            return None
+
+        schema_version = r1.payload["schemaVersion"]
+        if schema_version != 2:
+            raise RuntimeError("Unsupported schema version %s" % schema_version)
+
+        media_type = r1.payload["mediaType"]
+
+        if media_type == "application/vnd.docker.distribution.manifest.v2+json":
+            return self._get_single_manifest(r1, repo)
+        elif media_type == "application/vnd.docker.distribution.manifest.list.v2+json":
+            for manifest in r1.payload["manifests"]:
+                digest = manifest["digest"]
+                p = manifest["platform"]
+                arch = p["architecture"]
+                if arch == "amd64":
+                    r2 = self.get_manifest(repo, digest)
+                    return self._get_single_manifest(r2, repo)

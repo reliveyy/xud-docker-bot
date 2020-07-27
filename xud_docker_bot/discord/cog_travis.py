@@ -96,7 +96,7 @@ class TravisCog(BaseCog, name="Travis Category"):
                 force=args.force,
                 platforms=args.platform
             )
-            msg = "✅ Successfully created build request (%s) for `%s` (remaining requests: %s)" % (request_id, cmd, remaining_requests)
+            msg = "✅ Successfully created build request `%s` for `%s` (remaining requests: %s)" % (request_id, cmd, remaining_requests)
             await ctx.send(msg)
 
             while True:
@@ -121,4 +121,9 @@ class TravisCog(BaseCog, name="Travis Category"):
 
     @commands.command(brief="A shortcut command which equals to \".build -b master xud:latest\"")
     async def buildxudmaster(self, ctx: Context):
-        await self.build(ctx, branch="master")
+        await self.build(ctx, "xud")
+
+    async def listbuilds(self, ctx: Context):
+        client = self.context.travis_client
+
+        await ctx.send("build list")

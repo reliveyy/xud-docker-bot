@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 class Hook:
     def __init__(self, context: Context):
-        self.logger = logging.getLogger("xud_docker_bot.web_hooks." + self.__class__.__name__)
+        self.logger = logging.getLogger("xud_docker_bot.webhooks." + self.__class__.__name__)
         self.context = context
 
     @abstractmethod
