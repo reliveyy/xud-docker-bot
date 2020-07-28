@@ -108,7 +108,7 @@ class TravisClient:
         if ref.startswith("refs/heads/"):
             branch = ref.replace("refs/heads/", "")
         else:
-            raise RuntimeError("Invalid Git reference: %s" % ref)
+            raise RuntimeError("Failed to parse Git branch from reference %s" % ref)
 
         script = "tools/push {}".format(" ".join(images))
 
@@ -117,7 +117,7 @@ class TravisClient:
         else:
             arch = ["amd64", "arm64"]
 
-        r = post(f"{self.api_url}/repo/{self.repo}/requests", json={
+        payload = {
             "request": {
                 "message": commit_message,
                 "branch": branch,
@@ -133,7 +133,16 @@ class TravisClient:
                     "script": script
                 }
             }
-        }, headers={
+        }
+
+        # TODO remove this backward compatibility workaround
+        if branch != "no-force" and branch.startswith("dummy"):
+            config = payload["request"]["config"]
+            config["git"] = {
+                "depth": False
+            }
+
+        r = post(f"{self.api_url}/repo/{self.repo}/requests", json=payload, headers={
             "Travis-API-Version": "3",
             "Authorization": "token " + self.api_token,
         })
@@ -142,7 +151,7 @@ class TravisClient:
             raise TravisClientError(j["error_message"])
         remaining_requests = j["remaining_requests"]
         request_id = j["request"]["id"]
-        self._logger.debug("Triggered %s build for branch %s: %s", self.repo, branch, r.text)
+        self._logger.debug("Triggered %s build for branch %s", self.repo, branch)
 
         asyncio.get_running_loop().create_task(self.tracking_jobs(request_id))
 
