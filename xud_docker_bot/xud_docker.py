@@ -218,7 +218,7 @@ class XudDockerRepo:
         try:
             execute(f"git fetch")
             remote_ref = ref.replace("refs/heads", "refs/remotes/origin")
-            execute(f"git checkout -d {remote_ref}")
+            execute(f"git checkout --detach {remote_ref}")
             revision = execute("git rev-parse HEAD")
             commit_message = execute("git show --format='%s' --no-patch HEAD").strip()
             return GitReference(ref, revision, commit_message)
