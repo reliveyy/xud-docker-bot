@@ -20,7 +20,13 @@ class GithubHook(Hook):
         self.xud_docker = XudDockerRepo(repo_dir, registry_client)
         self.queue = Queue()
 
-    async def handle_upstream_update(self, repo, branch, message):
+    async def handle_upstream_update(self, repo, ref, message):
+
+        if ref.startswith("refs/heads/"):
+            branch = ref.replace("refs/heads/", "")
+        else:
+            raise RuntimeError("Failed to parse branch from reference %s" % ref)
+
         if repo == "ExchangeUnion/xud":
             image = "xud"
         elif repo == "ExchangeUnion/market-maker-tools":
@@ -41,7 +47,7 @@ class GithubHook(Hook):
         self.context.discord_template.publish_message(msg)
         for b in branches:
             travis_msg = "%s(%s): %s" % (repo, branch, message)
-            self.context.travis_client.trigger_travis_build2(b, travis_msg, [f"{image}:latest"])
+            self.context.travis_client.trigger_travis_build2("refs/heads/" + b, travis_msg, [f"{image}:latest"])
 
     async def process_queue(self):
         while True:
@@ -90,17 +96,12 @@ class GithubHook(Hook):
             repo = event.repo
             msg = event.commit_message
 
-            if event.ref.startswith("refs/heads/"):
-                branch = event.ref.replace("refs/heads/", "")
-            else:
-                branch = None
-
             if repo == "ExchangeUnion/xud":
-                await self.handle_upstream_update(repo, branch, msg)
+                await self.handle_upstream_update(repo, ref, msg)
             elif repo == "ExchangeUnion/market-maker-tools":
-                await self.handle_upstream_update(repo, branch, msg)
+                await self.handle_upstream_update(repo, ref, msg)
             elif repo == "BoltzExchange/boltz-lnd":
-                await self.handle_upstream_update(repo, branch, msg)
+                await self.handle_upstream_update(repo, ref, msg)
             elif repo == "ExchangeUnion/xud-docker":
                 await self.handle_xud_docker_update(ref)
         except:
