@@ -54,11 +54,14 @@ class GithubHook(Hook):
                     remaining_requests, request_id = client.trigger_travis_build2(ref, git_ref.commit_message, images)
                     self.logger.debug("Created Travis build request %s for images: %s (%s request(s) left)",
                                       request_id, ", ".join(images), remaining_requests)
-            except CalledProcessError as e:
-                self.logger.exception("Failed to process xud-docker reference %s update\n$ %s\n%s",
-                                      ref, e.cmd, e.output.decode())
-            except:
-                self.logger.exception("Failed to process xud-docker reference %s update", ref)
+            except Exception as e:
+                p = e
+                while p:
+                    if isinstance(p, CalledProcessError):
+                        self.logger.error("Failed to execute command\n$ %s\n%s", p.cmd, p.output.decode().strip())
+                        break
+                    p = e.__cause__
+                self.logger.exception("Failed to process xud-docker %s", ref)
 
     async def handle_xud_docker_update(self, ref):
         await self.queue.put(ref)
