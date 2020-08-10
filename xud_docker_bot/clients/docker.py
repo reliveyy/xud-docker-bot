@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Dict, Optional, List
 from collections import namedtuple
 from datetime import datetime
-import platform
 
 import requests
 
@@ -139,3 +138,30 @@ class DockerhubClient(DockerRegistryClient):
                 if arch == "amd64":
                     r2 = self.get_manifest(repo, digest)
                     return self._get_single_manifest(r2, repo)
+
+    def login(self, username, password) -> str:
+        r = requests.post("https://hub.docker.com/v2/users/login", json={
+            "username": username,
+            "password": password,
+        })
+        if r.status_code == 200:
+            return r.json()["token"]
+        else:
+            raise RuntimeError("Failed to login")
+
+    def logout(self, token) -> None:
+        r = requests.post("https://hub.docker.com/v2/logout", headers={
+            "Authorization": f"JWT {token}"
+        })
+        if r.status_code == 200:
+            if r.json()["detail"] != "Logged out":
+                raise RuntimeError("Failed to logout")
+        else:
+            raise RuntimeError("Failed to logout")
+
+    def remove_tag(self, token, repo, tag) -> None:
+        r = requests.delete(f"https://hub.docker.com/v2/repositories/{repo}/tags/{tag}", headers={
+            "Authorization": f"JWT {token}"
+        })
+        if r.status_code != 204:
+            raise RuntimeError("Failed to remove {}:{}".format(repo, tag))

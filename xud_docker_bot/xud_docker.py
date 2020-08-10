@@ -273,5 +273,8 @@ class XudDockerRepo:
             else:
                 self._logger.debug("No images need to build")
 
-            return git_ref, result
+            result = set(result)
+            result = sorted(result)
+            result = list(result)
 
+            return git_ref, result

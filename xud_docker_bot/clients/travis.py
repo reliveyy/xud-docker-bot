@@ -99,16 +99,11 @@ class TravisClient:
 
     def trigger_travis_build2(
             self,
-            ref: str,
+            branch: str,
             commit_message: str,
             images: List[str],
             force: bool = False,
             platforms: List[str] = None):
-
-        if ref.startswith("refs/heads/"):
-            branch = ref.replace("refs/heads/", "")
-        else:
-            raise RuntimeError("Failed to parse Git branch from reference %s" % ref)
 
         script = "tools/push {}".format(" ".join(images))
 
@@ -136,7 +131,7 @@ class TravisClient:
         }
 
         # TODO remove this backward compatibility workaround
-        if branch != "no-force" and branch.startswith("dummy"):
+        if branch != "no-force" and not branch.startswith("dummy"):
             config = payload["request"]["config"]
             config["git"] = {
                 "depth": False

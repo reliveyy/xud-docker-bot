@@ -68,6 +68,11 @@ class DockerhubHook(Hook):
             push_data = j["push_data"]
             pusher = self.normalize_pusher(push_data["pusher"])
             tag = push_data["tag"]
+            self.logger.debug("DockerHub tag %s pushed", tag)
+
+            if tag.endswith("__x86_64") or tag.endswith("__aarch64"):
+                return web.Response()
+
             images = self.parse_tag(repo, tag)
 
             msg = "%s pushed %s:**%s**" % (pusher, repo, tag.replace("__", r"\__"))

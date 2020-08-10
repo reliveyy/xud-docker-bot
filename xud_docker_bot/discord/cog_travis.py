@@ -52,7 +52,10 @@ available_images = [
     "bitcoind",
     "litecoind",
     "geth",
-    "lnd",
+    "lndbtc",
+    "lndltc",
+    "lndbtc-simnet",
+    "lndltc-simnet",
     "connext",
     "xud",
     "arby",
@@ -65,6 +68,9 @@ available_images = [
 class TravisCog(BaseCog, name="Travis Category"):
     @commands.command(brief=BUILD_BRIEF, usage=BUILD_USAGE)
     async def build(self, ctx: Context, *args):
+        if ctx.message.channel.id != self.context.config.discord.channel:
+            return
+
         parser = ArgumentParser(prog="build", add_help=False)
         parser.add_argument("-b", "--branch", default="master", metavar="<branch>")
         parser.add_argument("-p", "--platform", action="append", metavar="<platform>")
@@ -121,9 +127,6 @@ class TravisCog(BaseCog, name="Travis Category"):
 
     @commands.command(brief="A shortcut command which equals to \".build -b master xud:latest\"")
     async def buildxudmaster(self, ctx: Context):
+        if ctx.message.channel.id != self.context.config.discord.channel:
+            return
         await self.build(ctx, "xud")
-
-    async def listbuilds(self, ctx: Context):
-        client = self.context.travis_client
-
-        await ctx.send("build list")

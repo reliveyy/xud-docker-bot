@@ -12,6 +12,13 @@ class TravisConfig:
     api_token: str = None
 
 
+@dataclass
+class DockerhubConfig:
+    username: str = None
+    password: str = None
+
+
 class Config:
     discord = DiscordConfig()
     travis = TravisConfig()
+    dockerhub = DockerhubConfig()
