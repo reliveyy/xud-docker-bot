@@ -25,7 +25,7 @@ print_network("mainnet")
 
 DOCKERFILE = """\
 FROM python:3.8-alpine
-RUN pip install docker toml demjson
+RUN pip install docker toml demjson pyyaml
 WORKDIR /opt
 ADD launcher launcher
 """
