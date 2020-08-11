@@ -236,15 +236,37 @@ class XudDockerRepo:
         if branch == "master":
             # The commit 66f5d19 is the first commit that introduces utils image
             # Use this commit to shorten master history length
-            output = execute("git log --pretty=format:'%H' --no-patch 66f5d19")
+            output = execute("git log --pretty=format:'%H' --no-patch 66f5d19..")
         else:
-            output = execute("git log --pretty=format:'%H' --no-patch master")
+            output = execute("git log --pretty=format:'%H' --no-patch origin/master..")
         return output.splitlines()
 
     def _is_valid_branch_image(self, image: DockerImage, current_branch_history: List[str]) -> bool:
         if image.revision not in current_branch_history:
             return False
         return True
+
+    def _select_registry_image(self, branch: str, image: str, current_branch_history: List[str]) -> DockerImage:
+        """
+        Select registry image (foo:tag or foo:tag__branch)
+        """
+        if branch == "master":
+            tag = "latest"
+            docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+        else:
+            tag = "latest__" + branch.replace("/", "-")
+            docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+            print(docker_image, current_branch_history)
+            if not docker_image or not self._is_valid_branch_image(docker_image, current_branch_history):
+                tag = "latest"
+                docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+
+        self._logger.debug("Selected registry image exchangeunion/%s:%s", image, tag)
+
+        if not docker_image:
+            raise RuntimeError("Image %s not found of branch %s" % (image, branch))
+
+        return docker_image
 
     def get_modified_images(self, ref) -> Tuple[GitReference, List[str]]:
         with workspace(self.repo_dir):
@@ -265,17 +287,7 @@ class XudDockerRepo:
 
                 self._logger.debug("Check %s", image)
 
-                # Select registry image (foo:tag or foo:tag__branch)
-                if branch == "master":
-                    tag = "latest"
-                    docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
-                else:
-                    tag = "latest__" + branch.replace("/", "-")
-                    docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
-                    if not docker_image or not self._is_valid_branch_image(docker_image, current_branch_history):
-                        tag = "latest"
-                        docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
-                self._logger.debug("Selected registry image exchangeunion/%s:%s", image, tag)
+                docker_image = self._select_registry_image(branch, image, current_branch_history)
 
                 if docker_image:
                     revision = docker_image.revision
