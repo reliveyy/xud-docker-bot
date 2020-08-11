@@ -256,7 +256,8 @@ class XudDockerRepo:
         else:
             tag = "latest__" + branch.replace("/", "-")
             docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
-            print(docker_image, current_branch_history)
+            self._logger.debug("docker_image=%r", docker_image)
+            self._logger.debug("current_branch_history=%r", current_branch_history)
             if not docker_image or not self._is_valid_branch_image(docker_image, current_branch_history):
                 tag = "latest"
                 docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
