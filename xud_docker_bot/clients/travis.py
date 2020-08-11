@@ -94,7 +94,7 @@ class TravisClient:
                     job.log = self.get_job_log(job.job_id)
             if finished_jobs == len(jobs):
                 break
-            await sleep(3)
+            await sleep(10)
         self._logger.debug("Finished tracking jobs of request %s", request_id)
 
     def trigger_travis_build2(
