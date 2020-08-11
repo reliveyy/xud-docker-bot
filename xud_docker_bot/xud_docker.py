@@ -8,7 +8,7 @@ from collections import namedtuple
 from contextlib import contextmanager
 
 from xud_docker_bot.utils import execute
-from xud_docker_bot.clients import DockerhubClient
+from xud_docker_bot.clients import DockerhubClient, DockerImage
 
 SCRIPT = """\
 from launcher.config.template import nodes_config
@@ -144,15 +144,9 @@ class XudDockerRepo:
     def _build_utils(self, revision) -> str:
         dockerfile = self._ensure_utils_dockerfile()
         tag = f"utils:{revision}"
-        # if self._utils_exists(revision):
-        #     self._logger.debug("Skip building utils:%s (existed)", revision)
-        #     return tag
         self._checkout_revision(revision)
         with workspace("images/utils/"):
-            try:
-                execute(f"docker build . -f {dockerfile} -t {tag}")
-            except CalledProcessError as e:
-                self._logger.error("Failed to build utils:%s\n$ %s\n%s", revision, e.cmd, e.output.decode().strip())
+            execute(f"docker build . -f {dockerfile} -t {tag}")
             return tag
 
     def _dump_template(self, utils_image) -> Dict[str, str]:
@@ -174,19 +168,19 @@ class XudDockerRepo:
             result[key] = value
         return result
 
-    def _diff_template_py(self, registry_utils_image_revision) -> Dict[str, VersionChange]:
+    def _diff_template_py(self, registry_utils_image: DockerImage) -> Dict[str, VersionChange]:
+        registry_revision = registry_utils_image.revision
 
-        current_revision = execute("git rev-parse HEAD").strip()
-
-        registry_utils = self._build_utils(registry_utils_image_revision)
+        registry_utils = self._build_utils(registry_revision)
         r1 = self._dump_template(registry_utils)
-        self._logger.debug("Registry utils image template (%s)\n%s",
-                           registry_utils_image_revision,
+        self._logger.debug("Registry utils:%s template\n%s",
+                           registry_revision,
                            "\n".join([f"{key} {value}" for key, value in r1.items()]))
 
+        current_revision = execute("git rev-parse HEAD").strip()
         current_utils = self._build_utils(current_revision)
         r2 = self._dump_template(current_utils)
-        self._logger.debug("Current utils image template (%s)\n%s",
+        self._logger.debug("Current utils:%s template\n%s",
                            current_revision,
                            "\n".join([f"{key} {value}" for key, value in r1.items()]))
 
@@ -201,12 +195,13 @@ class XudDockerRepo:
             else:
                 result[image] = VersionChange(network, None, new_version)
 
-        self._logger.debug("Image utils template.py diff result: %s", result)
+        self._logger.debug("Image utils template diff result: %s",
+                           "\n".join([f"- {k}: {v}" for k, v in result.items()]))
 
         return result
 
-    def _get_template_modified_images(self, registry_utils_image_revision) -> List[str]:
-        diff = self._diff_template_py(registry_utils_image_revision)
+    def _get_template_modified_images(self, registry_utils_image: DockerImage) -> List[str]:
+        diff = self._diff_template_py(registry_utils_image)
         result = set()
         for key, value in diff.items():
             # TODO improve new_version parsing
@@ -214,16 +209,22 @@ class XudDockerRepo:
             result.add(image_tag)
         return list(result)
 
-    def _checkout_ref(self, ref) -> GitReference:
-        try:
-            execute(f"git fetch")
-            remote_ref = ref.replace("refs/heads", "refs/remotes/origin")
-            execute(f"git checkout --detach {remote_ref}")
-            revision = execute("git rev-parse HEAD")
-            commit_message = execute("git show --format='%s' --no-patch HEAD").strip()
-            return GitReference(ref, revision, commit_message)
-        except Exception as e:
-            raise RuntimeError("Failed to checkout reference %s" % ref) from e
+    def _fetch_updates(self) -> None:
+        output = execute(f"git fetch")
+        self._logger.debug("Fetched xud-docker updates\n%s", output.strip())
+
+    def _get_ref_details(self, ref) -> GitReference:
+        revision = execute("git rev-parse HEAD")
+        commit_message = execute("git show --format='%s' --no-patch HEAD").strip()
+        return GitReference(ref, revision, commit_message)
+
+    def _show_head(self) -> None:
+        output = execute("git show --no-patch HEAD")
+        self._logger.debug("Current HEAD of xud-docker repository\n%s", output.strip())
+
+    def _checkout_origin_ref(self, ref) -> None:
+        remote_ref = ref.replace("refs/heads", "refs/remotes/origin")
+        execute(f"git checkout --detach {remote_ref}")
 
     def _checkout_revision(self, revision) -> None:
         try:
@@ -231,24 +232,50 @@ class XudDockerRepo:
         except Exception as e:
             raise RuntimeError("Failed to checkout revision %s" % revision) from e
 
+    def _get_current_branch_history(self, branch) -> List[str]:
+        if branch == "master":
+            # The commit 66f5d19 is the first commit that introduces utils image
+            # Use this commit to shorten master history length
+            output = execute("git log --pretty=format:'%H' --no-patch 66f5d19")
+        else:
+            output = execute("git log --pretty=format:'%H' --no-patch master")
+        return output.splitlines()
+
+    def _is_valid_branch_image(self, image: DockerImage, current_branch_history: List[str]) -> bool:
+        if image.revision not in current_branch_history:
+            return False
+        return True
+
     def get_modified_images(self, ref) -> Tuple[GitReference, List[str]]:
         with workspace(self.repo_dir):
-            git_ref = self._checkout_ref(ref)
+            self._fetch_updates()
+            self._checkout_origin_ref(ref)
+            self._show_head()
+            git_ref = self._get_ref_details(ref)
+            branch = ref.replace("refs/heads/", "")
+            current_branch_history = self._get_current_branch_history(branch)
 
             images = os.listdir("images")
 
             latest_images = []
             version_images = []
             for image in images:
+                self._checkout_origin_ref(ref)
+                self._show_head()
+
                 self._logger.debug("Check %s", image)
 
-                branch = ref.replace("refs/heads/", "")
+                # Select registry image (foo:tag or foo:tag__branch)
                 if branch == "master":
-                    docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", "latest")
+                    tag = "latest"
+                    docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
                 else:
-                    docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", "latest__" + branch.replace("/", "-"))
-                    if not docker_image:
-                        docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", "latest")
+                    tag = "latest__" + branch.replace("/", "-")
+                    docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+                    if not docker_image or not self._is_valid_branch_image(docker_image, current_branch_history):
+                        tag = "latest"
+                        docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+                self._logger.debug("Selected registry image exchangeunion/%s:%s", image, tag)
 
                 if docker_image:
                     revision = docker_image.revision
@@ -259,9 +286,9 @@ class XudDockerRepo:
                         if self._diff_image_with_revision(image, revision):
                             latest_images.append(f"{image}:latest")
                         else:
-                            self._logger.debug("Image %s is up-to-date", image)
+                            self._logger.debug("Image %s is up-to-date (%s)", image, revision)
                         if image == "utils":
-                            version_images = self._get_template_modified_images(docker_image.revision)
+                            version_images = self._get_template_modified_images(docker_image)
                 else:
                     self._logger.debug("Registry image not found")
                     latest_images.append(f"{image}:latest")
