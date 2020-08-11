@@ -57,6 +57,16 @@ class GithubHook(Hook):
                     else:
                         raise RuntimeError("Failed to parse branch from reference %s" % ref)
 
+                    lines = git_ref.commit_message.splitlines()
+                    first_line = lines[0].strip()
+                    if len(images) == 0:
+                        build_msg = "Will build **no** images."
+                    else:
+                        build_msg = "Will build images: {}.".format(", ".join(images))
+                    msg = "ExchangeUnion/xud-docker branch **{}** was pushed ({}). {}" \
+                        .format(branch, first_line, build_msg)
+                    self.context.discord_template.publish_message(msg)
+
                     remaining_requests, request_id = client.trigger_travis_build2(branch, git_ref.commit_message, images)
                     self.logger.debug("Created Travis build request %s for images: %s (%s request(s) left)",
                                       request_id, ", ".join(images), remaining_requests)
@@ -70,6 +80,7 @@ class GithubHook(Hook):
                 self.logger.exception("Failed to process xud-docker %s", ref)
 
     async def handle_xud_docker_update(self, ref):
+        self.context.discord_template.publish_message("Submit xud-docker %s build task" % ref)
         await self.queue.put(ref)
 
     async def _parse_request(self, request: web.Request) -> Event:
