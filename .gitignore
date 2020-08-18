@@ -4,3 +4,4 @@ dist/
 xud_docker_bot.egg-info/
 bot.log
 __pycache__/
+build/

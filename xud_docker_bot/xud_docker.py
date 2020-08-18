@@ -1,60 +1,75 @@
 import os
-from subprocess import check_output, PIPE, STDOUT, CalledProcessError
+from subprocess import Popen, PIPE, STDOUT, CalledProcessError
 import logging
 import shutil
-import re
 from requests import get
+from typing import List, Dict, Tuple
+from collections import namedtuple
+from contextlib import contextmanager
 
-# TODO dynamically generate this image_tags map
-image_tags = {
-    "bitcoind": ["0.20.0"],
-    "litecoind": ["0.18.1"],
-    "geth": ["1.9.16"],
-    "lnd": ["0.10.2-beta", "0.10.2-beta-simnet", "0.10.1-beta-ltc", "0.10.1-beta-ltc-simnet"],
-    "connext": ["latest", "7.0.0-alpha.14"],
-    "xud": ["latest", "1.0.0-beta.5"],
-    "arby": ["latest", "0.2.0"],
-    "boltz": ["latest", "1.0.0"],
-    "webui": ["latest", "1.0.0"],
-    "utils": ["latest"],
-}
+from xud_docker_bot.utils import execute
+from xud_docker_bot.clients import DockerhubClient, DockerImage
+
+SCRIPT = """\
+from launcher.config.template import nodes_config
+
+def print_network(network):
+    for key, value in nodes_config[network].items():
+        print("%s/%s %s" % (network, key, value["image"]))
+
+print_network("simnet")
+print_network("testnet")
+print_network("mainnet")
+"""
+
+
+DOCKERFILE = """\
+FROM python:3.8-alpine
+RUN pip install docker toml demjson pyyaml
+WORKDIR /opt
+ADD launcher launcher
+"""
+
+
+VersionChange = namedtuple("ImageChange", ["network", "old_version", "new_version"])
+GitReference = namedtuple("GitReference", ["ref", "revision", "commit_message"])
+
+@contextmanager
+def workspace(dir):
+    wd = os.getcwd()
+    try:
+        os.chdir(dir)
+        yield
+    finally:
+        os.chdir(wd)
 
 
 class XudDockerRepo:
-    def __init__(self, repo_dir):
-        self.logger = logging.getLogger("xud_docker_bot.XudDockerRepo")
+    def __init__(self, repo_dir, dockerhub_client: DockerhubClient):
+        self._logger = logging.getLogger("xud_docker_bot.XudDockerRepo")
         self.repo_dir = repo_dir
+        self.dockerhub_client = dockerhub_client
         repo_url = "https://github.com/ExchangeUnion/xud-docker.git"
         self._ensure_repo(repo_url, self.repo_dir)
 
     def _clone_repo(self, repo_url, repo_dir):
-        self._execute(f"git clone {repo_url} {repo_dir}")
-
-    def _execute(self, cmd):
-        output = check_output(cmd, shell=True, stderr=STDOUT)
-        self.logger.debug("$ %s\n%s", cmd, output.decode())
+        try:
+            execute(f"git clone {repo_url} {repo_dir}")
+        except Exception as e:
+            raise RuntimeError("Failed to clone repository %s to folder %s" %(repo_url, repo_dir)) from e
 
     def _get_origin_url(self):
-        cmd = f"git remote get-url origin"
-        output = check_output(cmd, shell=True, stderr=PIPE)
-        output = output.decode()
-        self.logger.debug("$ %s\n%s", cmd, output)
-        return output.strip()
+        try:
+            output = execute(f"git remote get-url origin")
+            return output.strip()
+        except Exception as e:
+            raise RuntimeError("Failed to get origin URL") from e
 
     def _check(self, repo_url, repo_dir):
         if not os.path.exists(repo_dir) or not os.path.isdir(repo_dir):
             return False
-        wd = os.getcwd()
-        try:
-            os.chdir(repo_dir)
-            try:
-                self._execute(f"git status")
-            except CalledProcessError:
-                return False
-
+        with workspace(repo_dir):
             return self._get_origin_url() == repo_url
-        finally:
-            os.chdir(wd)
 
     def _ensure_repo(self, repo_url, repo_dir):
         if not self._check(repo_url, repo_dir):
@@ -98,40 +113,208 @@ class XudDockerRepo:
 
         return result
 
-    def get_modified_images(self, branch):
-        wd = os.getcwd()
-        try:
-            os.chdir(self.repo_dir)
-            self._execute("git checkout master")
-            self._execute("git fetch")
-            try:
-                self._execute(f"git branch -D {branch}")
-            except CalledProcessError:
-                pass
-            self._execute(f"git checkout {branch}")
-            self._execute(f"git pull origin {branch}")
+    def _diff_image_with_revision(self, image, revision) -> bool:
+        cmd = f"git diff --name-status {revision} -- images/{image}"
+        output = execute(cmd)
+        lines = output.splitlines()
+        if len(lines) > 0:
+            self._logger.debug("Image %s is different from %s\n%s", image, revision, "\n".join(lines))
+            return True
+        else:
+            return False
 
-            if branch == "master":
-                commit = "0aa9c74f46012d212134ec6b7d58732b84f14ee0"
+    def _ensure_utils_dockerfile(self):
+        dockerfile = os.path.expanduser("~/.xud-docker-bot/utils.Dockerfile")
+        with open(dockerfile, "w") as f:
+            f.write(DOCKERFILE)
+        return dockerfile
+
+    def _utils_exists(self, revision) -> bool:
+        filter = f"reference=utils:{revision}"
+        format = "{{.ID}}"
+        output = execute(f"docker images --filter='{filter}' --format '{format}'")
+        lines = output.splitlines()
+        if len(lines) == 1:
+            return True
+        elif len(lines) == 0:
+            return False
+        else:
+            raise RuntimeError("There shouldn't be multiple utils images with filter: " + filter)
+
+    def _build_utils(self, revision) -> str:
+        dockerfile = self._ensure_utils_dockerfile()
+        tag = f"utils:{revision}"
+        self._checkout_revision(revision)
+        with workspace("images/utils/"):
+            execute(f"docker build . -f {dockerfile} -t {tag}")
+            return tag
+
+    def _dump_template(self, utils_image) -> Dict[str, str]:
+        """Dump utils image template.py as a Dict.
+        The key is like "simnet/lndbtc"
+        The value is like "exchangeunion/lnd:0.10.2-beta-simnet"
+        """
+        cmd = f"docker run -i --rm --entrypoint python {utils_image}"
+        p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE, stderr=STDOUT)
+        out, _ = p.communicate(input=SCRIPT.encode())
+        output = out.decode()
+        if p.returncode != 0:
+            self._logger.error("Failed to dump %s template.py\n%s", utils_image, output)
+            raise RuntimeError("Failed to dump %s template.py" % utils_image)
+        lines = output.splitlines()
+        result = {}
+        for line in lines:
+            key, value = line.split()
+            result[key] = value
+        return result
+
+    def _diff_template_py(self, registry_utils_image: DockerImage) -> Dict[str, VersionChange]:
+        registry_revision = registry_utils_image.revision
+
+        registry_utils = self._build_utils(registry_revision)
+        r1 = self._dump_template(registry_utils)
+        self._logger.debug("Registry utils:%s template\n%s",
+                           registry_revision,
+                           "\n".join([f"{key} {value}" for key, value in r1.items()]))
+
+        current_revision = execute("git rev-parse HEAD").strip()
+        current_utils = self._build_utils(current_revision)
+        r2 = self._dump_template(current_utils)
+        self._logger.debug("Current utils:%s template\n%s",
+                           current_revision,
+                           "\n".join([f"{key} {value}" for key, value in r1.items()]))
+
+        result = {}
+
+        for key, new_version in r2.items():
+            network, image = key.split("/")
+            if key in r1:
+                old_version = r1[key]
+                if old_version != new_version:
+                    result[image] = VersionChange(network, old_version, new_version)
             else:
-                commit = "master"
+                result[image] = VersionChange(network, None, new_version)
 
-            cmd = "git diff --name-only {} -- images".format(commit)
-            output = check_output(cmd, shell=True, stderr=PIPE)
-            output = output.decode()
-            self.logger.debug("$ %s\n%s", cmd, output)
-            lines = output.splitlines()
-            images = set()
-            p = re.compile(r"^images/([^/]+)/.+$")
-            for line in lines:
-                m = p.match(line)
-                if m:
-                    images.add(m.group(1))
-            self.logger.debug("Modified images: %s", images)
-            result = []
+        self._logger.debug("Image utils template diff result: %s",
+                           "\n".join([f"- {k}: {v}" for k, v in result.items()]))
+
+        return result
+
+    def _get_template_modified_images(self, registry_utils_image: DockerImage) -> List[str]:
+        diff = self._diff_template_py(registry_utils_image)
+        result = set()
+        for key, value in diff.items():
+            # TODO improve new_version parsing
+            image_tag = value.new_version.replace("exchangeunion/", "")
+            result.add(image_tag)
+        return list(result)
+
+    def _fetch_updates(self) -> None:
+        output = execute(f"git fetch")
+        self._logger.debug("Fetched xud-docker updates\n%s", output.strip())
+
+    def _get_ref_details(self, ref) -> GitReference:
+        revision = execute("git rev-parse HEAD")
+        commit_message = execute("git show --format='%s' --no-patch HEAD").strip()
+        return GitReference(ref, revision, commit_message)
+
+    def _show_head(self) -> None:
+        output = execute("git show --no-patch HEAD")
+        self._logger.debug("Current HEAD of xud-docker repository\n%s", output.strip())
+
+    def _checkout_origin_ref(self, ref) -> None:
+        remote_ref = ref.replace("refs/heads", "refs/remotes/origin")
+        execute(f"git checkout --detach {remote_ref}")
+
+    def _checkout_revision(self, revision) -> None:
+        try:
+            execute(f"git checkout {revision}")
+        except Exception as e:
+            raise RuntimeError("Failed to checkout revision %s" % revision) from e
+
+    def _get_current_branch_history(self, branch) -> List[str]:
+        if branch == "master":
+            # The commit 66f5d19 is the first commit that introduces utils image
+            # Use this commit to shorten master history length
+            output = execute("git log --pretty=format:'%H' --no-patch 66f5d19..")
+        else:
+            output = execute("git log --pretty=format:'%H' --no-patch origin/master..")
+        return output.splitlines()
+
+    def _is_valid_branch_image(self, image: DockerImage, current_branch_history: List[str]) -> bool:
+        if image.revision not in current_branch_history:
+            return False
+        return True
+
+    def _select_registry_image(self, branch: str, image: str, current_branch_history: List[str]) -> DockerImage:
+        """
+        Select registry image (foo:tag or foo:tag__branch)
+        """
+        if branch == "master":
+            tag = "latest"
+            docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+        else:
+            tag = "latest__" + branch.replace("/", "-")
+            docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+            self._logger.debug("docker_image=%r", docker_image)
+            self._logger.debug("current_branch_history=%r", current_branch_history)
+            if not docker_image or not self._is_valid_branch_image(docker_image, current_branch_history):
+                tag = "latest"
+                docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+
+        self._logger.debug("Selected registry image exchangeunion/%s:%s", image, tag)
+
+        if not docker_image:
+            raise RuntimeError("Image %s not found of branch %s" % (image, branch))
+
+        return docker_image
+
+    def get_modified_images(self, ref) -> Tuple[GitReference, List[str]]:
+        with workspace(self.repo_dir):
+            self._fetch_updates()
+            self._checkout_origin_ref(ref)
+            self._show_head()
+            git_ref = self._get_ref_details(ref)
+            branch = ref.replace("refs/heads/", "")
+            current_branch_history = self._get_current_branch_history(branch)
+
+            images = os.listdir("images")
+
+            latest_images = []
+            version_images = []
             for image in images:
-                result.extend([f"{image}:{tag}" for tag in image_tags[image]])
-            self.logger.debug("Rebuilt tags: %s", result)
-            return result
-        finally:
-            os.chdir(wd)
+                self._checkout_origin_ref(ref)
+                self._show_head()
+
+                self._logger.debug("Check %s", image)
+
+                docker_image = self._select_registry_image(branch, image, current_branch_history)
+
+                if docker_image:
+                    revision = docker_image.revision
+                    if revision.endswith("-dirty"):
+                        self._logger.debug("Image %s is dirty", image)
+                        latest_images.append(f"{image}:latest")
+                    else:
+                        if self._diff_image_with_revision(image, revision):
+                            latest_images.append(f"{image}:latest")
+                        else:
+                            self._logger.debug("Image %s is up-to-date (%s)", image, revision)
+                        if image == "utils":
+                            version_images = self._get_template_modified_images(docker_image)
+                else:
+                    self._logger.debug("Registry image not found")
+                    latest_images.append(f"{image}:latest")
+
+            result = latest_images + version_images
+
+            if len(result) > 0:
+                self._logger.debug("Images to build: %s", ", ".join(result))
+            else:
+                self._logger.debug("No images need to build")
+
+            result = set(result)
+            result = sorted(result)
+            result = list(result)
+
+            return git_ref, result
