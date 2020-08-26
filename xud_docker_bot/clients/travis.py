@@ -118,10 +118,11 @@ class TravisClient:
                 "branch": branch,
                 "merge_mode": "replace",
                 "config": {
+                    "os": "linux",
+                    "dist": "bionic",
                     "language": "python",
                     "python": "3.8",
                     "arch": arch,
-                    "services": ["docker"],
                     "before_script": [
                         'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin',
                     ],
@@ -129,13 +130,6 @@ class TravisClient:
                 }
             }
         }
-
-        # TODO remove this backward compatibility workaround
-        if branch != "no-force" and not branch.startswith("dummy"):
-            config = payload["request"]["config"]
-            config["git"] = {
-                "depth": False
-            }
 
         r = post(f"{self.api_url}/repo/{self.repo}/requests", json=payload, headers={
             "Travis-API-Version": "3",
