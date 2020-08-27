@@ -32,7 +32,7 @@ class DockerhubHook(Hook):
         return pusher
 
     def inspect_tag(self, repo, tag):
-        client = self.context.dockerhub_client
+        client = self.context.docker_template
         try:
             j = client.get_tag(repo, tag)
             assert j

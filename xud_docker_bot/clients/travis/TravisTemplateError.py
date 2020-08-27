@@ -1,0 +1,2 @@
+class TravisTemplateError(Exception):
+    pass

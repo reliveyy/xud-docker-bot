@@ -3,12 +3,9 @@ import logging
 from typing import List
 import asyncio
 from asyncio import sleep
-from dataclasses import dataclass
 
-
-class TravisClientError(Exception):
-    pass
-
+from .Job import Job
+from .TravisClientError import TravisClientError
 
 # Travis-CI build and job states
 # created queued received started passed failed errored canceled ready
@@ -18,17 +15,9 @@ class TravisClientError(Exception):
 # approved rejected
 
 
-@dataclass
-class Job:
-    job_id: int
-    build_id: int
-    state: str
-    log: str
-
-
 class TravisClient:
     def __init__(self, api_token):
-        self._logger = logging.getLogger("xud_docker_bot.TravisClient")
+        self._logger = logging.getLogger(__name__)
         self.api_token = api_token
         self.repo = "ExchangeUnion%2Fxud-docker"
         self.api_url = "https://api.travis-ci.org"

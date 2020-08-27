@@ -1,2 +1,2 @@
-from .docker import DockerhubClient, DockerRegistryClient, DockerImage
-from .travis import TravisClient, TravisClientError
+from .docker import DockerTemplate, DockerTemplateError, DockerHubClient, DockerRegistryClient, DockerImage
+from .travis import TravisTemplate, TravisTemplateError, TravisClient, TravisClientError

@@ -7,7 +7,7 @@ from discord.ext import commands
 from discord.ext.commands import Context
 
 from .abc import BaseCog
-from ..clients import TravisClientError
+from xud_docker_bot.clients import TravisTemplateError
 
 if TYPE_CHECKING:
     pass
@@ -94,7 +94,7 @@ class TravisCog(BaseCog, name="Travis Category"):
                 return
 
         try:
-            client = self.context.travis_client
+            client = self.context.travis_template
             remaining_requests, request_id = client.trigger_travis_build2(
                 args.branch,
                 "Triggered from Discord by {}".format(ctx.author),
@@ -121,7 +121,7 @@ class TravisCog(BaseCog, name="Travis Category"):
                     await ctx.send(msg)
                     break
 
-        except TravisClientError as e:
+        except TravisTemplateError as e:
             msg = "🚨 Failed to create build request for `%s`: %s" % (cmd, e)
             await ctx.send(msg)
 

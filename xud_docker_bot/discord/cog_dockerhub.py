@@ -10,7 +10,7 @@ class DockerhubCog(BaseCog, name="DockerHub Category"):
     @command()
     async def tags(self, ctx, repo: str):
         assert repo
-        tags = self.context.dockerhub_client.get_tags(f"exchangeunion/{repo}")
+        tags = self.context.docker_template.get_tags(f"exchangeunion/{repo}")
         msg = "Repository **exchangeunion/{}** has **{}** tag(s) in total.".format(repo, len(tags))
         await ctx.send(msg)
         for t in tags:
@@ -20,7 +20,7 @@ class DockerhubCog(BaseCog, name="DockerHub Category"):
     @command()
     async def cleanup(self, ctx, repo: str):
         assert repo
-        tags = self.context.dockerhub_client.get_tags(f"exchangeunion/{repo}")
+        tags = self.context.docker_template.get_tags(f"exchangeunion/{repo}")
         remove_list = []
         for tag in tags:
             if "__" in tag:
@@ -29,7 +29,7 @@ class DockerhubCog(BaseCog, name="DockerHub Category"):
     @command()
     async def remove(self, ctx, image: str):
         config = self.context.config.dockerhub
-        client = self.context.dockerhub_client
+        client = self.context.docker_template
         token = client.login(config.username, config.password)
         client.remove_tag(token, "exchangeunion/foo", "bar")
         client.logout(token)

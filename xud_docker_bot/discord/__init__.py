@@ -39,9 +39,9 @@ class DiscordTemplate:
             if m:
                 build_id = m.group(1)
                 if reaction.emoji == '🚫':
-                    context.travis_client.cancel_travis_build(build_id)
+                    context.travis_template.cancel_travis_build(build_id)
                 elif reaction.emoji == '🔄':
-                    context.travis_client.restart_travis_build(build_id)
+                    context.travis_template.restart_travis_build(build_id)
 
         bot.add_cog(DockerhubCog(context))
         bot.add_cog(TravisCog(context))

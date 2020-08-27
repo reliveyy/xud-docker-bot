@@ -1,0 +1,2 @@
+class DockerTemplateError(Exception):
+    pass

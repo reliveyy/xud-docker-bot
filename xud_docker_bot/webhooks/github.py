@@ -16,8 +16,7 @@ class GithubHook(Hook):
     def __init__(self, context):
         super().__init__(context)
         repo_dir = os.path.expanduser("~/.xud-docker-bot/xud-docker")
-        registry_client = context.dockerhub_client
-        self.xud_docker = XudDockerRepo(repo_dir, registry_client)
+        self.xud_docker = XudDockerRepo(repo_dir, context.docker_template)
         self.queue = Queue()
 
     async def handle_upstream_update(self, repo, branch, message):
@@ -42,14 +41,14 @@ class GithubHook(Hook):
         self.context.discord_template.publish_message(msg)
         for b in branches:
             travis_msg = "%s(%s): %s" % (repo, branch, message)
-            self.context.travis_client.trigger_travis_build2(b, travis_msg, [f"{image}:latest"])
+            self.context.travis_template.trigger_travis_build2(b, travis_msg, [f"{image}:latest"])
 
     async def process_queue(self):
         while True:
             ref = await self.queue.get()
             self.logger.debug("Process xud-docker %s", ref)
             try:
-                client = self.context.travis_client
+                client = self.context.travis_template
                 git_ref, images = self.xud_docker.get_modified_images(ref)
                 if len(images) > 0:
                     if ref.startswith("refs/heads/"):

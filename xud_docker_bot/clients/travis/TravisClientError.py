@@ -1,0 +1,2 @@
+class TravisClientError(Exception):
+    pass

@@ -8,7 +8,7 @@ from collections import namedtuple
 from contextlib import contextmanager
 
 from xud_docker_bot.utils import execute
-from xud_docker_bot.clients import DockerhubClient, DockerImage
+from xud_docker_bot.clients import DockerTemplate, DockerImage
 
 SCRIPT = """\
 from launcher.config.template import nodes_config
@@ -45,10 +45,10 @@ def workspace(dir):
 
 
 class XudDockerRepo:
-    def __init__(self, repo_dir, dockerhub_client: DockerhubClient):
+    def __init__(self, repo_dir, docker_template: DockerTemplate):
         self._logger = logging.getLogger("xud_docker_bot.XudDockerRepo")
         self.repo_dir = repo_dir
-        self.dockerhub_client = dockerhub_client
+        self.docker_template = docker_template
         repo_url = "https://github.com/ExchangeUnion/xud-docker.git"
         self._ensure_repo(repo_url, self.repo_dir)
 
@@ -252,15 +252,15 @@ class XudDockerRepo:
         """
         if branch == "master":
             tag = "latest"
-            docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+            docker_image = self.docker_template.get_image(f"exchangeunion/{image}", tag)
         else:
             tag = "latest__" + branch.replace("/", "-")
-            docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+            docker_image = self.docker_template.get_image(f"exchangeunion/{image}", tag)
             self._logger.debug("docker_image=%r", docker_image)
             self._logger.debug("current_branch_history=%r", current_branch_history)
             if not docker_image or not self._is_valid_branch_image(docker_image, current_branch_history):
                 tag = "latest"
-                docker_image = self.dockerhub_client.get_image(f"exchangeunion/{image}", tag)
+                docker_image = self.docker_template.get_image(f"exchangeunion/{image}", tag)
 
         self._logger.debug("Selected registry image exchangeunion/%s:%s", image, tag)
 
