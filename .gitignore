@@ -5,3 +5,9 @@ xud_docker_bot.egg-info/
 bot.log
 __pycache__/
 build/
+*.pyc
+*.swp
+.DS_Store
+htmlcov/
+.coverage/
+.cache/
