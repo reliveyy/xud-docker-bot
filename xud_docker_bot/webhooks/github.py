@@ -98,7 +98,7 @@ class GithubHook(Hook):
         except Exception as e:
             raise RuntimeError("Failed to parse GitHub webhook") from e
 
-    async def handle(self, request: web.Request) -> web.Response:
+    async def _handle(self, request: web.Request):
         try:
             event = await self._parse_request(request)
 
@@ -120,7 +120,8 @@ class GithubHook(Hook):
             elif repo == "ExchangeUnion/xud-docker":
                 await self.handle_xud_docker_update(ref)
         except:
-            # TODO save failed payload for further analyzing
             self.logger.exception("Failed to process GitHub webhook")
 
+    async def handle(self, request: web.Request) -> web.Response:
+        self.context.loop.create_task(self._handle(request))
         return web.Response()
