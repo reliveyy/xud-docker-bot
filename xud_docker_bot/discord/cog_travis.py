@@ -121,7 +121,8 @@ class TravisCog(BaseCog, name="Travis Category"):
                     await ctx.send(msg)
                     break
 
-        except TravisTemplateError as e:
+        except Exception as e:
+            self.logger.exception("Failed to create build request for \"%s\"", cmd)
             msg = "🚨 Failed to create build request for `%s`: %s" % (cmd, e)
             await ctx.send(msg)
 
