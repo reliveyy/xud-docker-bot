@@ -1,2 +1,0 @@
-class TestDockerTemplate:
-    pass

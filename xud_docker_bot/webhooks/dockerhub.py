@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-
+from discord import Embed
+import logging
 import humanize
 from aiohttp import web
+import asyncio
 
 from .abc import Hook
 
 if TYPE_CHECKING:
     pass
 
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Image:
@@ -21,6 +25,7 @@ class Image:
     revision: str
     travis_url: str
     app_revision: str
+    manifest_digest: str
 
 
 class DockerhubHook(Hook):
@@ -32,7 +37,7 @@ class DockerhubHook(Hook):
         return pusher
 
     def inspect_tag(self, repo, tag):
-        client = self.context.docker_template
+        client = self.dockerhub
         try:
             j = client.get_tag(repo, tag)
             assert j
@@ -43,16 +48,16 @@ class DockerhubHook(Hook):
                 size = img["size"]
 
                 # TODO migrate to DockerhubClient#get_image -> DockerImage
-                manifest = client.get_manifest(repo, digest)
+                manifest = client.registry_client.get_manifest(repo, digest)
                 real_digest = manifest.payload["config"]["digest"]
-                blob = client.get_blob(repo, real_digest)
+                blob = client.registry_client.get_blob(repo, real_digest)
 
                 labels = blob.payload["config"]["Labels"]
                 branch = labels.get("com.exchangeunion.image.branch", None)
                 revision = labels.get("com.exchangeunion.image.revision", None)
                 app_revision = labels.get("com.exchangeunion.application.revision", None)
                 travis_url = labels.get("com.exchangeunion.image.travis", None)
-                result.append(Image(platform, real_digest, size, branch, revision, travis_url, app_revision))
+                result.append(Image(platform, real_digest, size, branch, revision, travis_url, app_revision, manifest_digest=digest))
             return result
         except Exception as e:
             raise RuntimeError(f"Failed to inspect tag: {repo} {tag}", e)
@@ -61,14 +66,9 @@ class DockerhubHook(Hook):
         images = self.inspect_tag("exchangeunion/{}".format(repo), tag)
         return images
 
-    async def handle(self, request: web.Request) -> web.Response:
+    async def _handle(self, repo, tag, pusher):
         try:
-            j = await request.json()
-            repo = j["repository"]["name"]
-            push_data = j["push_data"]
-            pusher = self.normalize_pusher(push_data["pusher"])
-            tag = push_data["tag"]
-            self.logger.debug("DockerHub tag %s pushed", tag)
+            logger.debug("DockerHub tag %s pushed", tag)
 
             if tag.endswith("__x86_64"):
                 tag1 = tag.replace("__x86_64", "")
@@ -79,33 +79,59 @@ class DockerhubHook(Hook):
 
             images = self.parse_tag(repo, tag)
 
-            msg = "%s pushed %s:**%s**" % (pusher, repo, tag1.replace("__", r"\__"))
             for img in images:
                 r1 = img.revision
-                if r1:
-                    r1 = r1[:5]
-                else:
+                if not r1:
                     r1 = "N/A"
 
                 r2 = img.app_revision
-                if r2:
-                    r2 = r2[:5]
-                else:
+                if not r2:
                     r2 = "N/A"
 
-                travis_url = img.travis_url
-                if not travis_url:
-                    travis_url = "N/A"
+                if img.travis_url:
+                    desc = "Built from [Travis-CI](%s)" % img.travis_url
+                else:
+                    desc = "Built from N/A"
 
-                msg += "\n**{}**: `{}` {}, xud-docker `{}`, app `{}`, build <{}>".format(
-                    img.platform,
-                    img.digest.replace("sha256:", "")[:5],
-                    humanize.naturalsize(img.size, binary=True),
-                    r1,
-                    r2,
-                    travis_url,
-                )
-            self.context.discord_template.publish_message(msg)
+                embed = Embed(description=desc, color=0x40afde)
+                author_name = "Image %s:%s" % (repo, tag1)
+                docker_icon = "https://www.docker.com/sites/default/files/d8/2019-07/Moby-logo.png"
+                url = "https://hub.docker.com/layers/exchangeunion/{}/{}/images/{}".format(repo, tag1, img.manifest_digest.replace(":", "-"))
+                embed.set_author(name=author_name, icon_url=docker_icon, url=url)
+                embed.add_field(name="Platform", value=img.platform)
+
+                if "__" in tag1:
+                    branch = tag1.split("__")[1]
+                else:
+                    branch = "master"
+
+                embed.add_field(name="Branch", value=branch)
+                embed.add_field(name="Size", value=humanize.naturalsize(img.size, binary=True))
+                embed.add_field(name="Image Digest", value=img.digest.replace("sha256:", ""), inline=False)
+
+                commit_url = f"https://github.com/ExchangeUnion/xud-docker/commit/{r1}"
+                commit = "[%s](%s)" % (self.xud_docker.get_commit_message(r1), commit_url)
+                embed.add_field(name="Xud-Docker Commit", value=commit, inline=False)
+
+                if repo == "xud":
+                    pass
+                elif repo == "lndbtc":
+                    pass
+
+                if repo != "utils":
+                    commit_url = f"https://github.com/ExchangeUnion/xud-docker/commit/{r1}"
+                    commit = "[%s](%s)" % (self.xud_docker.get_commit_message(r1), commit_url)
+                    embed.add_field(name="Application Revision", value=r2, inline=False)
+
+                await self.discord.send(embed=embed)
         except:
-            self.logger.debug("Failed to process dockerhub webhook")
+            logger.exception("Failed to process dockerhub webhook")
+
+    async def handle(self, request: web.Request) -> web.Response:
+        j = await request.json()
+        repo = j["repository"]["name"]
+        push_data = j["push_data"]
+        pusher = self.normalize_pusher(push_data["pusher"])
+        tag = push_data["tag"]
+        asyncio.create_task(self._handle(repo, tag, pusher))
         return web.Response()

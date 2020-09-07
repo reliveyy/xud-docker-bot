@@ -115,7 +115,19 @@ class TravisClient:
                     "before_script": [
                         'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin',
                     ],
-                    "script": script
+                    "script": script,
+                    "notifications": {
+                        "webhooks": {
+                            "urls": [
+                                "http://104.196.206.7:5000/webhooks/travis"
+                            ],
+                            "on_success": "always",
+                            "on_failure": "always",
+                            "on_start": "always",
+                            "on_cancel": "always",
+                            "on_error": "always",
+                        }
+                    }
                 }
             }
         }
@@ -131,14 +143,22 @@ class TravisClient:
         request_id = j["request"]["id"]
         self._logger.debug("Triggered %s build for branch %s", self.repo, branch)
 
-        asyncio.get_running_loop().create_task(self.tracking_jobs(request_id))
+        # asyncio.get_running_loop().create_task(self.tracking_jobs(request_id))
 
         return remaining_requests, request_id
 
     def get_request(self, request_id):
-        r = get(f"{self.api_url}/repo/{self.repo}/request/{request_id}", headers={
+        url = f"{self.api_url}/repo/{self.repo}/request/{request_id}"
+        r = get(url, headers={
             "Travis-API-Version": "3",
             "Authorization": "token " + self.api_token,
+        })
+        return r.json()
+
+    def get_requests(self):
+        url = f"{self.api_url}/repo/{self.repo}/requests"
+        r = get(url, headers={
+            "Travis-API-Version": "3",
         })
         return r.json()
 
@@ -181,4 +201,3 @@ class TravisClient:
             "Authorization": "token " + self.api_token,
         })
         return r.json()
-

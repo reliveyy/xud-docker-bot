@@ -1,0 +1,291 @@
+from __future__ import annotations
+
+import logging
+from typing import List
+from aiohttp import ClientSession
+
+logger = logging.getLogger(__name__)
+
+
+def _convert_docker_platform_to_travis(platform: str):
+    platform = platform.strip()
+    platform = platform.lower()
+    if platform == "linux/amd64":
+        return "amd64"
+    elif platform == "linux/arm64":
+        return "arm64"
+    else:
+        raise RuntimeError("Cannot map Docker platform {} to Travis platform".format(platform))
+
+
+class TravisClient:
+    def __init__(self, api_token: str):
+        self.api_token = api_token
+        self.repo = "ExchangeUnion%2Fxud-docker"
+        self.api_url = "https://api.travis-ci.org"
+
+    async def trigger_travis_build(
+        self,
+        branch: str,
+        message: str,
+        images: List[str],
+        platforms: List[str] = None
+    ):
+        script = "tools/push {}".format(" ".join(images))
+
+        if platforms:
+            arch = [_convert_docker_platform_to_travis(p) for p in platforms]
+        else:
+            arch = ["amd64", "arm64"]
+
+        payload = {
+            "request": {
+                "message": message,
+                "branch": branch,
+                "merge_mode": "replace",
+                "config": {
+                    "os": "linux",
+                    "dist": "bionic",
+                    "language": "python",
+                    "python": "3.8",
+                    "arch": arch,
+                    "before_script": [
+                        'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin',
+                    ],
+                    "script": script,
+                    "notifications": {
+                        "webhooks": {
+                            "urls": [
+                                "http://104.196.206.7:5000/webhooks/travis"
+                            ],
+                            "on_success": "always",
+                            "on_failure": "always",
+                            "on_start": "always",
+                            "on_cancel": "always",
+                            "on_error": "always",
+                        }
+                    }
+                }
+            }
+        }
+
+        async with ClientSession() as session:
+            url = f"{self.api_url}/repo/{self.repo}/requests"
+            r = await session.post(url, json=payload, headers={
+                "Travis-API-Version": "3",
+                "Authorization": "token " + self.api_token,
+            })
+            j = await r.json()
+            if j["@type"] == "error":
+                raise TravisClientError(j["error_message"])
+            remaining_requests = j["remaining_requests"]
+            request_id = j["request"]["id"]
+            logger.debug("Triggered %s build for branch %s", self.repo, branch)
+
+        return remaining_requests, request_id
+
+    async def cancel_travis_build(self, build_id: str):
+        async with ClientSession() as session:
+            url = f"{self.api_url}/build/{build_id}/cancel"
+            r = await session.post(url, headers={
+                "Travis-API-Version": "3",
+                "Authorization": "token " + self.api_token,
+            })
+            logger.debug("Canceled build: %s", build_id)
+
+    async def restart_travis_build(self, build_id: str):
+        async with ClientSession() as session:
+            url = f"{self.api_url}/build/{build_id}/restart"
+            r = await session.post(url, headers={
+                "Travis-API-Version": "3",
+                "Authorization": "token " + self.api_token,
+            })
+            logger.debug("Restarted build: %s", build_id)
+
+
+# class TravisClient:
+#     def __init__(self, api_token):
+#         self._logger = logging.getLogger(__name__)
+#         self.api_token = api_token
+#         self.repo = "ExchangeUnion%2Fxud-docker"
+#         self.api_url = "https://api.travis-ci.org"
+#
+#     def trigger_travis_build(self, branch: str, message: str):
+#         r = post(f"{self.api_url}/repo/{self.repo}/requests", json={
+#             "request": {
+#                 "message": message,
+#                 "branch": branch,
+#             }
+#         }, headers={
+#             "Travis-API-Version": "3",
+#             "Authorization": "token " + self.api_token,
+#         })
+#         j = r.json()
+#         if j["@type"] == "error":
+#             raise TravisClientError(j["error_message"])
+#         self._logger.debug("Triggered %s build for branch %s: %s", self.repo, branch, r.text)
+#
+#     def _convert_docker_platform_to_travis(self, platform: str):
+#         platform = platform.strip()
+#         platform = platform.lower()
+#         if platform == "linux/amd64":
+#             return "amd64"
+#         elif platform == "linux/arm64":
+#             return "arm64"
+#         else:
+#             raise RuntimeError("Cannot map Docker platform {} to Travis platform".format(platform))
+#
+#     async def tracking_jobs(self, request_id):
+#         self._logger.debug("Start tracking jobs of request %s", request_id)
+#         builds = []
+#         while True:
+#             await sleep(3)
+#             r = self.get_request(request_id)
+#             state = r["state"]
+#             if state == "finished":
+#                 for build in r["builds"]:
+#                     builds.append(build["id"])
+#                 break
+#         self._logger.debug("Request %s builds: %s", request_id, ", ".join(map(str, builds)))
+#
+#         # request -> builds -> jobs
+#         jobs = []
+#         for build in builds:
+#             r = self.get_build(build)
+#             for job in r["jobs"]:
+#                 job_id = job["id"]
+#                 jobs.append(Job(job_id=job_id, build_id=build, state=None, log=None))
+#         self._logger.debug("Request %s jobs: %s", request_id, ", ".join(
+#             [f"{job.job_id}({job.build_id})" for job in jobs]))
+#
+#         while True:
+#             finished_jobs = 0
+#             for job in jobs:
+#                 if job.state in ["passed", "failed", "errored", "canceled"]:
+#                     finished_jobs = finished_jobs + 1
+#                     continue
+#                 r = self.get_job(job.job_id)
+#                 job.state = r["state"]
+#                 self._logger.debug("Job %s state: %s", job.job_id, job.state)
+#                 if job.state == "errored":
+#                     job.log = self.get_job_log(job.job_id)
+#             if finished_jobs == len(jobs):
+#                 break
+#             await sleep(10)
+#         self._logger.debug("Finished tracking jobs of request %s", request_id)
+#
+#     def trigger_travis_build2(
+#         self,
+#         branch: str,
+#         commit_message: str,
+#         images: List[str],
+#         force: bool = False,
+#         platforms: List[str] = None):
+#
+#         script = "tools/push {}".format(" ".join(images))
+#
+#         if platforms:
+#             arch = [self._convert_docker_platform_to_travis(p) for p in platforms]
+#         else:
+#             arch = ["amd64", "arm64"]
+#
+#         payload = {
+#             "request": {
+#                 "message": commit_message,
+#                 "branch": branch,
+#                 "merge_mode": "replace",
+#                 "config": {
+#                     "os": "linux",
+#                     "dist": "bionic",
+#                     "language": "python",
+#                     "python": "3.8",
+#                     "arch": arch,
+#                     "before_script": [
+#                         'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin',
+#                     ],
+#                     "script": script,
+#                     "notifications": {
+#                         "webhooks": {
+#                             "urls": [
+#                                 "http://104.196.206.7:5000/webhooks/travis"
+#                             ],
+#                             "on_success": "always",
+#                             "on_failure": "always",
+#                             "on_start": "always",
+#                             "on_cancel": "always",
+#                             "on_error": "always",
+#                         }
+#                     }
+#                 }
+#             }
+#         }
+#
+#         r = post(f"{self.api_url}/repo/{self.repo}/requests", json=payload, headers={
+#             "Travis-API-Version": "3",
+#             "Authorization": "token " + self.api_token,
+#         })
+#         j = r.json()
+#         if j["@type"] == "error":
+#             raise TravisClientError(j["error_message"])
+#         remaining_requests = j["remaining_requests"]
+#         request_id = j["request"]["id"]
+#         self._logger.debug("Triggered %s build for branch %s", self.repo, branch)
+#
+#         # asyncio.get_running_loop().create_task(self.tracking_jobs(request_id))
+#
+#         return remaining_requests, request_id
+#
+#     def get_request(self, request_id):
+#         url = f"{self.api_url}/repo/{self.repo}/request/{request_id}"
+#         r = get(url, headers={
+#             "Travis-API-Version": "3",
+#             "Authorization": "token " + self.api_token,
+#         })
+#         return r.json()
+#
+#     def get_requests(self):
+#         url = f"{self.api_url}/repo/{self.repo}/requests"
+#         r = get(url, headers={
+#             "Travis-API-Version": "3",
+#         })
+#         return r.json()
+#
+#     def get_build(self, build_id):
+#         r = get(f"{self.api_url}/build/{build_id}", headers={
+#             "Travis-API-Version": "3",
+#         })
+#         return r.json()
+#
+#     def get_job(self, job_id):
+#         r = get(f"{self.api_url}/job/{job_id}", headers={
+#             "Travis-API-Version": "3",
+#         })
+#         return r.json()
+#
+#     def get_job_log(self, job_id):
+#         r = get(f"{self.api_url}/job/{job_id}/log.txt", headers={
+#             "Travis-API-Version": "3",
+#         })
+#         return r.text
+#
+#     def cancel_travis_build(self, build_id: str):
+#         r = post(f"{self.api_url}/build/{build_id}/cancel", headers={
+#             "Travis-API-Version": "3",
+#             "Authorization": "token " + self.api_token,
+#         })
+#         self._logger.debug("Canceled build: %s", build_id)
+#
+#     def restart_travis_build(self, build_id: str):
+#         r = post(f"{self.api_url}/build/{build_id}/restart", headers={
+#             "Travis-API-Version": "3",
+#             "Authorization": "token " + self.api_token,
+#         })
+#         self._logger.debug("Restarted build: %s", build_id)
+#
+#     def get_builds_of_github_repo(self, repo):
+#         repo = repo.replace("/", "%2F")
+#         r = get(f"{self.api_url}/repo/github/{repo}/builds", headers={
+#             "Travis-API-Version": "3",
+#             "Authorization": "token " + self.api_token,
+#         })
+#         return r.json()

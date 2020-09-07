@@ -1,23 +1,20 @@
-import os
+from collections import namedtuple
+from subprocess import CalledProcessError
+import asyncio
+import logging
 
 from aiohttp import web
-from collections import namedtuple
-from asyncio.queues import Queue
-from subprocess import CalledProcessError
+from discord import Embed
 
 from .abc import Hook
-from xud_docker_bot.xud_docker import XudDockerRepo
-
 
 Event = namedtuple("Event", ["repo", "ref", "commit_message"])
 
 
+logger = logging.getLogger(__name__)
+
+
 class GithubHook(Hook):
-    def __init__(self, context):
-        super().__init__(context)
-        repo_dir = os.path.expanduser("~/.xud-docker-bot/xud-docker")
-        self.xud_docker = XudDockerRepo(repo_dir, context.docker_template)
-        self.queue = Queue()
 
     async def handle_upstream_update(self, repo, branch, message):
 
@@ -38,10 +35,10 @@ class GithubHook(Hook):
         first_line = lines[0]
         msg = "{} branch **{}** was pushed ({}). Will trigger builds for {}." \
             .format(repo, branch, first_line, branch_list)
-        self.context.discord_template.publish_message(msg)
+        await self.discord.send(msg)
         for b in branches:
             travis_msg = "%s(%s): %s" % (repo, branch, message)
-            self.context.travis_template.trigger_travis_build2(b, travis_msg, [f"{image}:latest"])
+            await self.travis.trigger_travis_build(b, travis_msg, [f"{image}:latest"])
 
     async def process_queue(self):
         while True:
@@ -66,7 +63,8 @@ class GithubHook(Hook):
                         .format(branch, first_line, build_msg)
                     self.context.discord_template.publish_message(msg)
 
-                    remaining_requests, request_id = client.trigger_travis_build2(branch, git_ref.commit_message, images)
+                    remaining_requests, request_id = client.trigger_travis_build2(branch, git_ref.commit_message,
+                                                                                  images)
                     self.logger.debug("Created Travis build request %s for images: %s (%s request(s) left)",
                                       request_id, ", ".join(images), remaining_requests)
             except Exception as e:
@@ -78,50 +76,55 @@ class GithubHook(Hook):
                     p = e.__cause__
                 self.logger.exception("Failed to process xud-docker %s", ref)
 
-    async def handle_xud_docker_update(self, ref):
-        self.context.discord_template.publish_message("Submit xud-docker %s build task" % ref)
+    async def handle_xud_docker_update(self, ref: str):
+        if "tag" in ref:
+            return
+        branch = ref.replace("refs/heads/", "")
+        self.build_service.auto_build(repo, ref, commit_message)
         await self.queue.put(ref)
 
     async def _parse_request(self, request: web.Request) -> Event:
+        j = await request.json()
+        repo = j["repository"]["full_name"]
+        ref = j["ref"]
+        msg = None
         try:
-            j = await request.json()
-            repo = j["repository"]["full_name"]
-            ref = j["ref"]
-            msg = None
-            try:
-                msg = j["head_commit"]["message"]
-            except:
-                pass
+            msg = j["head_commit"]["message"]
+        except:
+            pass
 
-            return Event(repo, ref, msg)
+        return Event(repo, ref, msg)
 
-        except Exception as e:
-            raise RuntimeError("Failed to parse GitHub webhook") from e
-
-    async def _handle(self, request: web.Request):
+    async def _handle(self, event):
         try:
-            event = await self._parse_request(request)
-
             ref = event.ref
             repo = event.repo
             msg = event.commit_message
 
-            if ref.startswith("refs/heads/"):
-                branch = ref.replace("refs/heads/", "")
-            else:
-                raise RuntimeError("Failed to parse branch from reference %s" % ref)
+            job = await self.build_service.auto_build(repo, ref, msg)
+            title = "Job #%s" % job.id
+            desc = "Auto-build for **{}** branch **{}**.\n\n{}".format(repo, ref, msg)
+            embed = Embed(title=title, description=desc, color=0x36ad5c)
+            await self.discord.send(embed=embed)
 
-            if repo == "ExchangeUnion/xud":
-                await self.handle_upstream_update(repo, branch, msg)
-            elif repo == "ExchangeUnion/market-maker-tools":
-                await self.handle_upstream_update(repo, branch, msg)
-            elif repo == "BoltzExchange/boltz-lnd":
-                await self.handle_upstream_update(repo, branch, msg)
-            elif repo == "ExchangeUnion/xud-docker":
-                await self.handle_xud_docker_update(ref)
+
+            # if ref.startswith("refs/heads/"):
+            #     branch = ref.replace("refs/heads/", "")
+            # else:
+            #     raise RuntimeError("Failed to parse branch from reference %s" % ref)
+            #
+            # if repo == "ExchangeUnion/xud":
+            #     await self.handle_upstream_update(repo, branch, msg)
+            # elif repo == "ExchangeUnion/market-maker-tools":
+            #     await self.handle_upstream_update(repo, branch, msg)
+            # elif repo == "BoltzExchange/boltz-lnd":
+            #     await self.handle_upstream_update(repo, branch, msg)
+            # elif repo == "ExchangeUnion/xud-docker":
+            #     await self.handle_xud_docker_update(ref)
         except:
-            self.logger.exception("Failed to process GitHub webhook")
+            logger.exception("Failed to process GitHub webhook")
 
     async def handle(self, request: web.Request) -> web.Response:
-        self.context.loop.create_task(self._handle(request))
+        event = await self._parse_request(request)
+        asyncio.create_task(self._handle(event))
         return web.Response()

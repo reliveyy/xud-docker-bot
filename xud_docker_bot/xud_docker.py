@@ -1,5 +1,5 @@
 import os
-from subprocess import Popen, PIPE, STDOUT, CalledProcessError
+from subprocess import Popen, PIPE, STDOUT, check_output
 import logging
 import shutil
 from requests import get
@@ -8,7 +8,7 @@ from collections import namedtuple
 from contextlib import contextmanager
 
 from xud_docker_bot.utils import execute
-from xud_docker_bot.clients import DockerTemplate, DockerImage
+from xud_docker_bot.docker import DockerHubClient, DockerImage
 
 SCRIPT = """\
 from launcher.config.template import nodes_config
@@ -34,6 +34,7 @@ ADD launcher launcher
 VersionChange = namedtuple("ImageChange", ["network", "old_version", "new_version"])
 GitReference = namedtuple("GitReference", ["ref", "revision", "commit_message"])
 
+
 @contextmanager
 def workspace(dir):
     wd = os.getcwd()
@@ -44,11 +45,13 @@ def workspace(dir):
         os.chdir(wd)
 
 
+logger = logging.getLogger(__name__)
+
+
 class XudDockerRepo:
-    def __init__(self, repo_dir, docker_template: DockerTemplate):
-        self._logger = logging.getLogger("xud_docker_bot.XudDockerRepo")
+    def __init__(self, repo_dir, dockerhub: DockerHubClient):
         self.repo_dir = repo_dir
-        self.docker_template = docker_template
+        self.dockerhub = dockerhub
         repo_url = "https://github.com/ExchangeUnion/xud-docker.git"
         self._ensure_repo(repo_url, self.repo_dir)
 
@@ -118,7 +121,7 @@ class XudDockerRepo:
         output = execute(cmd)
         lines = output.splitlines()
         if len(lines) > 0:
-            self._logger.debug("Image %s is different from %s\n%s", image, revision, "\n".join(lines))
+            logger.debug("Image %s is different from %s\n%s", image, revision, "\n".join(lines))
             return True
         else:
             return False
@@ -159,7 +162,7 @@ class XudDockerRepo:
         out, _ = p.communicate(input=SCRIPT.encode())
         output = out.decode()
         if p.returncode != 0:
-            self._logger.error("Failed to dump %s template.py\n%s", utils_image, output)
+            logger.error("Failed to dump %s template.py\n%s", utils_image, output)
             raise RuntimeError("Failed to dump %s template.py" % utils_image)
         lines = output.splitlines()
         result = {}
@@ -173,14 +176,14 @@ class XudDockerRepo:
 
         registry_utils = self._build_utils(registry_revision)
         r1 = self._dump_template(registry_utils)
-        self._logger.debug("Registry utils:%s template\n%s",
+        logger.debug("Registry utils:%s template\n%s",
                            registry_revision,
                            "\n".join([f"{key} {value}" for key, value in r1.items()]))
 
         current_revision = execute("git rev-parse HEAD").strip()
         current_utils = self._build_utils(current_revision)
         r2 = self._dump_template(current_utils)
-        self._logger.debug("Current utils:%s template\n%s",
+        logger.debug("Current utils:%s template\n%s",
                            current_revision,
                            "\n".join([f"{key} {value}" for key, value in r1.items()]))
 
@@ -195,7 +198,7 @@ class XudDockerRepo:
             else:
                 result[image] = VersionChange(network, None, new_version)
 
-        self._logger.debug("Image utils template diff result: %s",
+        logger.debug("Image utils template diff result: %s",
                            "\n".join([f"- {k}: {v}" for k, v in result.items()]))
 
         return result
@@ -211,7 +214,7 @@ class XudDockerRepo:
 
     def _fetch_updates(self) -> None:
         output = execute(f"git fetch")
-        self._logger.debug("Fetched xud-docker updates\n%s", output.strip())
+        logger.debug("Fetched xud-docker updates\n%s", output.strip())
 
     def _get_ref_details(self, ref) -> GitReference:
         revision = execute("git rev-parse HEAD")
@@ -220,7 +223,7 @@ class XudDockerRepo:
 
     def _show_head(self) -> None:
         output = execute("git show --no-patch HEAD")
-        self._logger.debug("Current HEAD of xud-docker repository\n%s", output.strip())
+        logger.debug("Current HEAD of xud-docker repository\n%s", output.strip())
 
     def _checkout_origin_ref(self, ref) -> None:
         remote_ref = ref.replace("refs/heads", "refs/remotes/origin")
@@ -252,17 +255,17 @@ class XudDockerRepo:
         """
         if branch == "master":
             tag = "latest"
-            docker_image = self.docker_template.get_image(f"exchangeunion/{image}", tag)
+            docker_image = self.dockerhub.get_image(f"exchangeunion/{image}", tag)
         else:
             tag = "latest__" + branch.replace("/", "-")
-            docker_image = self.docker_template.get_image(f"exchangeunion/{image}", tag)
-            self._logger.debug("docker_image=%r", docker_image)
-            self._logger.debug("current_branch_history=%r", current_branch_history)
+            docker_image = self.dockerhub.get_image(f"exchangeunion/{image}", tag)
+            logger.debug("docker_image=%r", docker_image)
+            logger.debug("current_branch_history=%r", current_branch_history)
             if not docker_image or not self._is_valid_branch_image(docker_image, current_branch_history):
                 tag = "latest"
-                docker_image = self.docker_template.get_image(f"exchangeunion/{image}", tag)
+                docker_image = self.dockerhub.get_image(f"exchangeunion/{image}", tag)
 
-        self._logger.debug("Selected registry image exchangeunion/%s:%s", image, tag)
+        logger.debug("Selected registry image exchangeunion/%s:%s", image, tag)
 
         if not docker_image:
             raise RuntimeError("Image %s not found of branch %s" % (image, branch))
@@ -286,35 +289,41 @@ class XudDockerRepo:
                 self._checkout_origin_ref(ref)
                 self._show_head()
 
-                self._logger.debug("Check %s", image)
+                logger.debug("Check %s", image)
 
                 docker_image = self._select_registry_image(branch, image, current_branch_history)
 
                 if docker_image:
                     revision = docker_image.revision
                     if revision.endswith("-dirty"):
-                        self._logger.debug("Image %s is dirty", image)
+                        logger.debug("Image %s is dirty", image)
                         latest_images.append(f"{image}:latest")
                     else:
                         if self._diff_image_with_revision(image, revision):
                             latest_images.append(f"{image}:latest")
                         else:
-                            self._logger.debug("Image %s is up-to-date (%s)", image, revision)
+                            logger.debug("Image %s is up-to-date (%s)", image, revision)
                         if image == "utils":
                             version_images = self._get_template_modified_images(docker_image)
                 else:
-                    self._logger.debug("Registry image not found")
+                    logger.debug("Registry image not found")
                     latest_images.append(f"{image}:latest")
 
             result = latest_images + version_images
 
             if len(result) > 0:
-                self._logger.debug("Images to build: %s", ", ".join(result))
+                logger.debug("Images to build: %s", ", ".join(result))
             else:
-                self._logger.debug("No images need to build")
+                logger.debug("No images need to build")
 
             result = set(result)
             result = sorted(result)
             result = list(result)
 
             return git_ref, result
+
+    def get_commit_message(self, commit):
+        with workspace(self.repo_dir):
+            cmd = "git show -s --format=%B {}".format(commit)
+            output = check_output(cmd, shell=True)
+            return output.decode().strip()
