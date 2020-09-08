@@ -3,7 +3,7 @@ from typing import List, Any, Optional
 from asyncio.queues import Queue
 from datetime import datetime
 import logging
-from subprocess import CalledProcessError
+from git import Repo
 
 
 logger = logging.getLogger(__name__)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import sys
+import os
 
 
 __all__ = (
@@ -61,3 +62,6 @@ class Config:
         datefmt = "%Y-%m-%d %H:%M:%S"
         logging.basicConfig(level=logging.ERROR, format=fmt, datefmt=datefmt, stream=sys.stdout)
         logging.getLogger("xud_docker_bot").setLevel(logging.DEBUG)
+
+        self.home_dir = os.path.expanduser("~/.xud-docker-bot")
+        self.repos_dir = os.path.join(self.home_dir, "repos")
