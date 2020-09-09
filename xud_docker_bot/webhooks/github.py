@@ -4,6 +4,8 @@ from aiohttp import web
 from collections import namedtuple
 from asyncio.queues import Queue
 from subprocess import CalledProcessError
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 from .abc import Hook
 from xud_docker_bot.xud_docker import XudDockerRepo
@@ -46,12 +48,14 @@ class GithubHook(Hook):
             self.context.travis_client.trigger_travis_build2(b, travis_msg, [f"{image}:latest"])
 
     async def process_queue(self):
+        executor = ThreadPoolExecutor(max_workers=1)
         while True:
             ref = await self.queue.get()
             self.logger.debug("Process xud-docker %s", ref)
             try:
                 client = self.context.travis_client
-                git_ref, images = self.xud_docker.get_modified_images(ref)
+                fut = executor.submit(self.xud_docker.get_modified_images, ref)
+                git_ref, images = await asyncio.wrap_future(fut)
                 if len(images) > 0:
                     if ref.startswith("refs/heads/"):
                         branch = ref.replace("refs/heads/", "")
