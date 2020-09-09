@@ -161,7 +161,7 @@ class TravisClient:
         request_id = j["request"]["id"]
         self._logger.debug("Triggered %s build for branch %s", self.repo, branch)
 
-        asyncio.get_running_loop().create_task(self.tracking_jobs(request_id))
+        # asyncio.get_running_loop().create_task(self.tracking_jobs(request_id))
 
         return remaining_requests, request_id
 
