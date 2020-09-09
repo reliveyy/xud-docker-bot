@@ -118,14 +118,27 @@ class TravisClient:
                 "branch": branch,
                 "merge_mode": "replace",
                 "config": {
+                    "os": "linux",
+                    "dist": "bionic",
                     "language": "python",
                     "python": "3.8",
                     "arch": arch,
-                    "services": ["docker"],
                     "before_script": [
                         'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin',
                     ],
-                    "script": script
+                    "script": script,
+                    "notifications": {
+                        "webhooks": {
+                            "urls": [
+                                "http://104.196.206.7:5000/webhooks/travis"
+                            ],
+                            "on_success": "always",
+                            "on_failure": "always",
+                            "on_start": "always",
+                            "on_cancel": "always",
+                            "on_error": "always",
+                        }
+                    }
                 }
             }
         }

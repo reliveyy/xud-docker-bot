@@ -1,5 +1,5 @@
 import os
-from subprocess import Popen, PIPE, STDOUT, CalledProcessError
+from subprocess import Popen, PIPE, STDOUT, check_output
 import logging
 import shutil
 from requests import get
@@ -318,3 +318,9 @@ class XudDockerRepo:
             result = list(result)
 
             return git_ref, result
+
+    def get_commit_message(self, commit):
+        with workspace(self.repo_dir):
+            cmd = "git show -s --format=%B {}".format(commit)
+            output = check_output(cmd, shell=True)
+            return output.decode().strip()

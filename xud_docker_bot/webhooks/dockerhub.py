@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from discord import Embed
 
 import humanize
 from aiohttp import web
@@ -21,6 +22,7 @@ class Image:
     revision: str
     travis_url: str
     app_revision: str
+    manifest_digest: str
 
 
 class DockerhubHook(Hook):
@@ -52,7 +54,7 @@ class DockerhubHook(Hook):
                 revision = labels.get("com.exchangeunion.image.revision", None)
                 app_revision = labels.get("com.exchangeunion.application.revision", None)
                 travis_url = labels.get("com.exchangeunion.image.travis", None)
-                result.append(Image(platform, real_digest, size, branch, revision, travis_url, app_revision))
+                result.append(Image(platform, real_digest, size, branch, revision, travis_url, app_revision, manifest_digest=digest))
             return result
         except Exception as e:
             raise RuntimeError(f"Failed to inspect tag: {repo} {tag}", e)
@@ -79,33 +81,51 @@ class DockerhubHook(Hook):
 
             images = self.parse_tag(repo, tag)
 
-            msg = "%s pushed %s:**%s**" % (pusher, repo, tag1.replace("__", r"\__"))
             for img in images:
                 r1 = img.revision
-                if r1:
-                    r1 = r1[:5]
-                else:
+                if not r1:
                     r1 = "N/A"
 
                 r2 = img.app_revision
-                if r2:
-                    r2 = r2[:5]
-                else:
+                if not r2:
                     r2 = "N/A"
 
-                travis_url = img.travis_url
-                if not travis_url:
-                    travis_url = "N/A"
+                if img.travis_url:
+                    desc = "Built from [Travis-CI](%s)" % img.travis_url
+                else:
+                    desc = "Built from N/A"
 
-                msg += "\n**{}**: `{}` {}, xud-docker `{}`, app `{}`, build <{}>".format(
-                    img.platform,
-                    img.digest.replace("sha256:", "")[:5],
-                    humanize.naturalsize(img.size, binary=True),
-                    r1,
-                    r2,
-                    travis_url,
-                )
-            self.context.discord_template.publish_message(msg)
+                embed = Embed(description=desc, color=0x40afde)
+                author_name = "Image %s:%s" % (repo, tag1)
+                docker_icon = "https://www.docker.com/sites/default/files/d8/2019-07/Moby-logo.png"
+                url = "https://hub.docker.com/layers/exchangeunion/{}/{}/images/{}".format(repo, tag1, img.manifest_digest.replace(":", "-"))
+                embed.set_author(name=author_name, icon_url=docker_icon, url=url)
+                embed.add_field(name="Platform", value=img.platform)
+
+                if "__" in tag1:
+                    branch = tag1.split("__")[1]
+                else:
+                    branch = "master"
+
+                embed.add_field(name="Branch", value=branch)
+                embed.add_field(name="Size", value=humanize.naturalsize(img.size, binary=True))
+                embed.add_field(name="Image Digest", value=img.digest.replace("sha256:", ""), inline=False)
+
+                commit_url = f"https://github.com/ExchangeUnion/xud-docker/commit/{r1}"
+                commit = "[%s](%s)" % (self.context.xud_docker.get_commit_message(r1), commit_url)
+                embed.add_field(name="Xud-Docker Commit", value=commit, inline=False)
+
+                if repo == "xud":
+                    pass
+                elif repo == "lndbtc":
+                    pass
+
+                if repo != "utils":
+                    commit_url = f"https://github.com/ExchangeUnion/xud-docker/commit/{r1}"
+                    commit = "[%s](%s)" % (self.context.xud_docker.get_commit_message(r1), commit_url)
+                    embed.add_field(name="Application Revision", value=r2, inline=False)
+
+                message = await self.context.discord_template.send(embed=embed)
         except:
             self.logger.debug("Failed to process dockerhub webhook")
         return web.Response()
