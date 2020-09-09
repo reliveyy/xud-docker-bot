@@ -15,10 +15,11 @@ Event = namedtuple("Event", ["repo", "ref", "commit_message"])
 class GithubHook(Hook):
     def __init__(self, context):
         super().__init__(context)
-        repo_dir = os.path.expanduser("~/.xud-docker-bot/xud-docker")
-        registry_client = context.dockerhub_client
-        self.xud_docker = XudDockerRepo(repo_dir, registry_client)
         self.queue = Queue()
+
+    @property
+    def xud_docker(self) -> XudDockerRepo:
+        return self.context.xud_docker
 
     async def handle_upstream_update(self, repo, branch, message):
 
@@ -99,7 +100,7 @@ class GithubHook(Hook):
         except Exception as e:
             raise RuntimeError("Failed to parse GitHub webhook") from e
 
-    async def handle(self, request: web.Request) -> web.Response:
+    async def _handle(self, request: web.Request):
         try:
             event = await self._parse_request(request)
 
@@ -121,7 +122,8 @@ class GithubHook(Hook):
             elif repo == "ExchangeUnion/xud-docker":
                 await self.handle_xud_docker_update(ref)
         except:
-            # TODO save failed payload for further analyzing
             self.logger.exception("Failed to process GitHub webhook")
 
+    async def handle(self, request: web.Request) -> web.Response:
+        self.context.loop.create_task(self._handle(request))
         return web.Response()

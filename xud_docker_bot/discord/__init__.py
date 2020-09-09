@@ -19,7 +19,7 @@ __all__ = ["DiscordTemplate"]
 class DiscordTemplate:
     def __init__(self, context: Context):
         self._logger = logging.getLogger("xud_docker_bot.DiscordTemplate")
-        bot = commands.Bot(command_prefix='.')
+        bot = commands.Bot(command_prefix='!', help_command=None)
 
         @bot.event
         async def on_ready():
@@ -55,3 +55,6 @@ class DiscordTemplate:
 
     async def publish_message_async(self, message: str):
         return await self._channel.send(message)
+
+    async def send(self, *args, **kwargs):
+        return await self._channel.send(*args, **kwargs)
