@@ -32,6 +32,7 @@ class Server:
             web.post("/webhooks/dockerhub", DockerhubHook(self.context).handle),
             web.post("/webhooks/github", github_hook.handle),
             web.post("/webhooks/travis", TravisHook(self.context).handle),
+            web.get("/health", self.get_health)
         ])
         runner = web.AppRunner(app)
         loop.run_until_complete(runner.setup())
@@ -53,3 +54,11 @@ class Server:
             loop.run_until_complete(bot.logout())
         finally:
             loop.close()
+
+    def is_bot_ready(self) -> bool:
+        return self.context.discord_template.bot.is_ready()
+
+    async def get_health(self, request):
+        return web.json_response({
+            "discord_client_ready": self.is_bot_ready()
+        })
